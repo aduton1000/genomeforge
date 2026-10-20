@@ -1,0 +1,9 @@
+.nextflow/
+.nextflow.log*
+work/
+results/
+genomeforge_run/
+*.sif
+__pycache__/
+.DS_Store
+*.params.local.yaml
