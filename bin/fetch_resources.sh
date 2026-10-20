@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# fetch_resources.sh — stage the hg38 resources the pipeline needs that are NOT yet in
-# /hpc/opt/callforge/refs/annotation_db: VQSR training sets + GATK WGS calling regions.
-# Idempotent, resumable (curl -C -), verifies gzip integrity. ~2.5 GB total.
+# fetch_resources.sh — stage the hg38 resources GenomeForge needs beyond a typical annotation
+# bundle: the VQSR training sets (hapmap, omni, 1000G phase-1 SNPs) and the GATK WGS calling
+# regions. Idempotent, resumable (curl -C -), verifies gzip integrity. ~2.5 GB total.
 #
-#   bash bin/fetch_resources.sh [DEST_DIR]      (default: /hpc/opt/callforge/refs/annotation_db)
+#   bash bin/fetch_resources.sh DEST_DIR        e.g. the directory holding dbSNP/Mills/ClinVar
 set -euo pipefail
-DEST="${1:-/hpc/opt/callforge/refs/annotation_db}"
+[ $# -ge 1 ] || { echo "usage: $0 DEST_DIR   (directory to receive the files, e.g. your annotation_db)" >&2; exit 2; }
+DEST="$1"
 BASE="https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0"
 FILES=(
   hapmap_3.3.hg38.vcf.gz hapmap_3.3.hg38.vcf.gz.tbi

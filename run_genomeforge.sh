@@ -8,17 +8,17 @@
 #
 # Environment:
 #   GENOMEFORGE_RUNDIR     run directory (default: $PWD/genomeforge_run)
-#   GENOMEFORGE_PROFILE    nextflow profile (default: noguchi)
-#   GENOMEFORGE_PARAMS     -params-file (default: none; the site profile carries the paths)
-#   GENOMEFORGE_PARTITION  SLURM partition for the head job (default: global)
+#   GENOMEFORGE_PROFILE    nextflow profile (default: slurm; e.g. noguchi for a bundled site profile)
+#   GENOMEFORGE_PARAMS     -params-file (default: none; needed with the generic slurm profile)
+#   GENOMEFORGE_PARTITION  SLURM partition for the head job (default: the cluster's default partition)
 #
 # Monitor:  tail -f $RUNDIR/nextflow.log      squeue -u $USER      $RUNDIR/results/pipeline_info/report.html
 set -euo pipefail
 PIPE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNDIR="${GENOMEFORGE_RUNDIR:-$PWD/genomeforge_run}"
-PROFILE="${GENOMEFORGE_PROFILE:-noguchi}"
+PROFILE="${GENOMEFORGE_PROFILE:-slurm}"
 PARAMS="${GENOMEFORGE_PARAMS:-}"
-PARTITION="${GENOMEFORGE_PARTITION:-global}"
+PARTITION="${GENOMEFORGE_PARTITION:-}"
 mkdir -p "$RUNDIR/work" "$RUNDIR/tmp" "$RUNDIR/logs"
 [ -w "$RUNDIR" ] || { echo "run dir not writable: $RUNDIR" >&2; exit 1; }
 
@@ -27,7 +27,7 @@ HEAD="$RUNDIR/logs/head_${STAMP}.sbatch"
 cat > "$HEAD" <<EOF
 #!/bin/bash
 #SBATCH --job-name=genomeforge-head
-#SBATCH --partition=${PARTITION}
+${PARTITION:+#SBATCH --partition=${PARTITION}}
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
 #SBATCH --output=${RUNDIR}/logs/head_${STAMP}.out
