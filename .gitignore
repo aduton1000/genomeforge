@@ -7,3 +7,5 @@ genomeforge_run/
 __pycache__/
 .DS_Store
 *.params.local.yaml
+*.egg-info/
+build/

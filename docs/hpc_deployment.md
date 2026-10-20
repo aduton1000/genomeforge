@@ -11,11 +11,14 @@ troubleshooting. All `/hpc/...` and `/opt/...` paths are **examples**; substitut
 cd /opt
 git clone https://github.com/aduton1000/genomeforge.git
 cd genomeforge
-nextflow run main.nf --help           # prints usage; confirms Nextflow ≥ 24.10 and Java 17+
+pip install -e .                      # registers `genomeforge`; or put share/bin on PATH (no pip needed)
+genomeforge --version
+genomeforge test                      # compiles and dry-runs the DAG; needs Nextflow ≥ 24.10 and Java 17+
 ```
 
-No host conda environment is needed. Nextflow itself must be on `PATH` (or use a site
-module).
+Then copy `share/genomeforge-env.sh.example` to a site path, fill in the install root,
+profile, params file and run directory, and source it from `~/.bashrc`. No host conda
+environment is needed; Nextflow itself must be on `PATH` (or come from a site module).
 
 ## 1. Container images
 
@@ -82,19 +85,21 @@ Set `bind_paths` to the root(s) holding the references and the data (comma-separ
 ## 4. Run on SLURM
 
 ```bash
-# sample sheet (read-only on the data; fails loudly on unpaired/truncated files)
-python3 /opt/genomeforge/bin/make_samplesheet.py --roots /data/cohort/delivery --metadata phenotypes.csv --out samplesheet.csv
+genomeforge check --profile slurm --params-file /data/projects/cohort/site.params.yaml     # everything present?
+genomeforge samplesheet --roots /data/cohort/delivery --metadata phenotypes.csv --out samplesheet.csv
 
-# head job under sbatch; work/, tmp/, logs/ and results/ under the run directory
-export GENOMEFORGE_RUNDIR=/data/projects/cohort/genomeforge_run
 export GENOMEFORGE_PROFILE=slurm GENOMEFORGE_PARAMS=/data/projects/cohort/site.params.yaml   # or GENOMEFORGE_PROFILE=noguchi
-bash /opt/genomeforge/run_genomeforge.sh --input samplesheet.csv -stub-run      # seconds
-bash /opt/genomeforge/run_genomeforge.sh --input samplesheet.csv               # the real run
+export GENOMEFORGE_RUNDIR=/data/projects/cohort/genomeforge_run
+genomeforge run --input samplesheet.csv --stub        # seconds: paths, containers, scheduler
+genomeforge run --input samplesheet.csv               # the real run
 ```
 
-The launcher exports `NXF_WORK`, `TMPDIR` and `NXF_TEMP` into the run directory, raises the
-open-file limit for GenomicsDB, logs to `nextflow.log`, and passes `-resume`, so re-running
-the same command after a failure continues from the last completed task.
+`genomeforge run` writes an sbatch head script under `<rundir>/logs/`, exports `NXF_WORK`,
+`TMPDIR` and `NXF_TEMP` into the run directory, raises the open-file limit for GenomicsDB,
+logs to `<rundir>/nextflow.log`, and passes `-resume`, so repeating the command after a
+failure continues from the last completed task. `--foreground` runs Nextflow in the current
+shell instead (for `screen`/`tmux` sessions), `--print-cmd` shows the command without
+submitting.
 
 **Sizing.** Per 30× sample: alignment ≈ 60–100 CPU-h, HaplotypeCaller ≈ 30–60 CPU-h,
 peak RAM 64 GB (bwa-mem2 at 32 threads), 72 GB for an index build. Storage: final BAMs
@@ -104,13 +109,14 @@ cohort on four 72-thread nodes takes 5–7 days of wall-clock.
 ## 5. Monitoring and resuming
 
 ```bash
+genomeforge status --rundir $GENOMEFORGE_RUNDIR        # head job, task counts per process, recent log
 tail -f $GENOMEFORGE_RUNDIR/nextflow.log
 squeue -u $USER
 open $GENOMEFORGE_RUNDIR/results/pipeline_info/report.html      # per-task resources, after completion
 ```
 
 Nextflow retries failed tasks up to `--max_retries` (default 2) with memory and time scaled
-by attempt. To resume after the head job itself was killed, re-run the launcher. To clean
+by attempt. To resume after the head job itself was killed, repeat `genomeforge run`. To clean
 intermediates after a successful run, `nextflow clean -f -k <run name>` or remove `work/`.
 
 ## 6. Validate-at-deployment checklist
@@ -127,14 +133,14 @@ intermediates after a successful run, `nextflow clean -f -k <run name>` or remov
 
 | symptom | cause / fix |
 |:--------|:------------|
-| `Missing site parameters: …` at start | no site profile or params file; use `-profile noguchi` or `-profile slurm -params-file site.params.yaml` |
+| `Missing site parameters: …` at start | no site profile or params file; `genomeforge run --profile noguchi` or `--profile slurm --params-file site.params.yaml`; `genomeforge check` lists what is missing |
 | `MISMATCH: … contig style` in `resource_check.txt` | a VCF is Ensembl-named while the FASTA is chr-named (or vice versa); rename with `bcftools annotate --rename-chrs` |
 | `MISSING bwa-mem2 index part` | build the index next to the FASTA (section 2) |
 | tasks fail with exit 137 / OOM | retries scale memory automatically; raise the label in `conf/base.config` if a third attempt is needed |
 | `No such file` for a FASTQ inside a task | the data root is not bound into the container; add it to `bind_paths` |
 | VEP: cache version mismatch | `--vep_release` must equal the cache directory (`homo_sapiens/<release>_GRCh38`) and the image's VEP version |
 | GenomicsDBImport "too many open files" | the launcher raises `ulimit -n`; if the site caps it, lower `--batch-size` in `modules/joint.nf` |
-| head job dies at logout | use `run_genomeforge.sh` (sbatch) rather than running `nextflow` interactively |
+| head job dies at logout | use `genomeforge run` (sbatch head job) rather than `nextflow run` interactively, or `--foreground` inside tmux |
 
 ## 8. Noguchi HPC notes
 
