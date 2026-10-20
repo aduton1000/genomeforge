@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# genomeforge — launcher shim for sites without `pip install`: put <install>/share/bin on
+# PATH and the command works straight from the checkout (needs only python3 >= 3.8).
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+export GENOMEFORGE_HOME="${GENOMEFORGE_HOME:-$(cd "$here/../.." && pwd)}"
+exec python3 "$GENOMEFORGE_HOME/genomeforge_cli/cli.py" "$@"

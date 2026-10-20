@@ -56,49 +56,53 @@ flowchart LR
 ```bash
 git clone https://github.com/aduton1000/genomeforge.git /opt/genomeforge      # or ~/genomeforge
 cd /opt/genomeforge
-nextflow run main.nf --help
+pip install -e .            # registers the `genomeforge` command
+genomeforge --version       # success: prints "genomeforge 0.1.0"
 ```
 
-A run selects a **site profile**: `slurm` (generic; pair it with a copy of [`params.example.yaml`](params.example.yaml)) or a bundled site profile such as `noguchi` (paths, partition and images built in; add your own as `conf/<site>.config`). The `stub` profile dry-runs the whole DAG without containers.
+No `pip`? Put `share/bin` on `PATH` instead; the `genomeforge` shim runs straight from the
+checkout. A site fills in [`share/genomeforge-env.sh.example`](share/genomeforge-env.sh.example)
+once (install root, profile, params file, run directory) and sources it from `~/.bashrc`.
+
+A run selects a **site profile**: `slurm` (generic; pair it with a copy of [`params.example.yaml`](params.example.yaml)) or a bundled site profile such as `noguchi` (paths, partition and images built in; add your own as `conf/<site>.config`).
 
 ## Quickstart
 
 ```bash
-# 1. stage the VQSR training sets and the GATK WGS calling regions next to the other annotation files (~2.5 GB, once per site)
-bash bin/fetch_resources.sh /path/to/annotation_db
-
-# 2. build the sample sheet from the FASTQ directories (read-only; fails loudly on unpaired or truncated files)
-python3 bin/make_samplesheet.py --roots /data/delivery-part1 /data/delivery-part2 --metadata phenotypes.csv --out samplesheet.csv
-
-# 3. dry-run the DAG, then run (resumable: repeat the same command after any failure)
-export GENOMEFORGE_RUNDIR=/data/projects/my-cohort/genomeforge_run
-export GENOMEFORGE_PROFILE=slurm GENOMEFORGE_PARAMS=/data/projects/my-cohort/site.params.yaml   # or GENOMEFORGE_PROFILE=noguchi
-bash run_genomeforge.sh --input samplesheet.csv -stub-run
-bash run_genomeforge.sh --input samplesheet.csv
+genomeforge test                                                    # installation check: full DAG in stub mode
+genomeforge check --profile noguchi                                 # references, containers, tools present?
+genomeforge resources fetch /path/to/annotation_db                  # VQSR training sets + GATK calling regions (once per site)
+genomeforge samplesheet --roots /data/delivery --metadata phenotypes.csv --out samplesheet.csv
+genomeforge run --profile noguchi --input samplesheet.csv --rundir /data/projects/my-cohort/genomeforge_run --stub   # dry run
+genomeforge run --profile noguchi --input samplesheet.csv --rundir /data/projects/my-cohort/genomeforge_run          # the run
+genomeforge status --rundir /data/projects/my-cohort/genomeforge_run
 ```
 
-`run_genomeforge.sh` submits the Nextflow head job under `sbatch` so it survives logout, and keeps `work/`, `tmp/` and `results/` under the run directory. Monitor with `tail -f $GENOMEFORGE_RUNDIR/nextflow.log` or `squeue -u $USER`.
+`genomeforge run` submits the Nextflow head job under `sbatch` so it survives logout, keeps
+`work/`, `tmp/`, `logs/` and `results/` under the run directory, and resumes when the same
+command is repeated after a failure. Set `GENOMEFORGE_PROFILE`, `GENOMEFORGE_PARAMS` and
+`GENOMEFORGE_RUNDIR` once (the env file does this) and the commands shrink to
+`genomeforge run --input samplesheet.csv`.
 
 ## Usage
 
-**Sample sheet.** One row per lane-pair: `sample_id,lane_id,library,flowcell,lane,fastq_1,fastq_2[,sex,phenotype]`. `bin/make_samplesheet.py` writes it from directories or from an existing `sample_id,fastq_1,fastq_2` list:
+| command | purpose |
+|:--------|:--------|
+| `genomeforge run` | launch or resume the pipeline; every pipeline parameter passes through (`--scatter_count 8`, `--filtering hard`, …) |
+| `genomeforge samplesheet` | lane-level sample sheet from FASTQ directories (Novogene, bcl2fastq or generic names) or from a `sample_id,fastq_1,fastq_2` CSV |
+| `genomeforge check` | verify a site: tools, containers, FASTA + bwa-mem2 index, every VCF and index, gnomAD files, VEP cache, contig-style agreement |
+| `genomeforge resources fetch DEST` | download hapmap / omni / 1000G (VQSR) and `wgs_calling_regions.hg38.interval_list` |
+| `genomeforge status` | head job, task counts per process, recent log lines, results present |
+| `genomeforge qc-summary` | rebuild `cohort_qc_summary.tsv/.md` from a results directory with other thresholds |
+| `genomeforge test` | compile and dry-run the whole DAG on a synthetic layout |
 
-```bash
-python3 bin/make_samplesheet.py --roots DIR [DIR ...] --out samplesheet.csv \
-    [--metadata clinical.csv] [--exclude S1,S2] [--sample-from auto|dir|filename] [--min-bytes 1000000000]
-python3 bin/make_samplesheet.py --fastq-csv pairs.csv --out samplesheet.csv
-```
+`genomeforge <command> --help` documents every option with examples. The raw forms still
+work: `nextflow run main.nf -profile noguchi --input samplesheet.csv` and `python3 bin/make_samplesheet.py …`.
 
-`clinical.csv` needs a `sample_id` column; `sex` (M/F) drives the sex-concordance check and `phenotype` is carried into the QC table. Nothing else is used by the pipeline.
+**Sample sheet.** One row per lane-pair: `sample_id,lane_id,library,flowcell,lane,fastq_1,fastq_2[,sex,phenotype]`.
+`clinical.csv` (optional) needs a `sample_id` column; `sex` (M/F) drives the sex-concordance check and `phenotype` is carried into the QC table.
 
-**Direct invocation** (what the launcher wraps):
-
-```bash
-nextflow run main.nf -profile slurm -params-file site.params.yaml --input samplesheet.csv --outdir results -resume
-nextflow run main.nf -profile noguchi --input samplesheet.csv --outdir results -resume
-```
-
-**Key options** (all in [`nextflow.config`](nextflow.config)):
+**Key pipeline parameters** (all in [`nextflow.config`](nextflow.config); pass them to `genomeforge run`):
 
 | option | default | purpose |
 |:-------|:--------|:--------|

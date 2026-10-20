@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genomeforge"
+version = "0.1.0"
+description = "GenomeForge — command-line front door for the whole-genome germline joint-calling pipeline (FASTQ -> annotated, QC'd cohort callset)."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Bright Adu" }]
+keywords = ["genomics", "germline", "whole-genome", "joint-calling", "nextflow", "gatk"]
+
+# The CLI is stdlib-only. Every analytical tool runs inside the CallForge containers
+# that Nextflow starts per task; no Python dependencies belong here.
+dependencies = []
+
+[project.scripts]
+# registers the `genomeforge` command on PATH after `pip install -e .`
+genomeforge = "genomeforge_cli.cli:main"
+
+[tool.setuptools]
+packages = ["genomeforge_cli"]

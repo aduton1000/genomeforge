@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  GenomeForge — site environment (EXAMPLE)
+#
+#  Fill this in once per cluster, then source it from each user's ~/.bashrc (or a
+#  shared profile.d snippet). Afterwards `genomeforge` is on PATH and a run is just:
+#
+#      genomeforge run --input samplesheet.csv
+#
+#  Copy to a real path and edit the values marked [EDIT]:
+#      cp share/genomeforge-env.sh.example /opt/genomeforge/genomeforge-env.sh
+#      echo 'source /opt/genomeforge/genomeforge-env.sh' >> ~/.bashrc
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Install/repo root (the directory containing main.nf, bin/, share/).
+export GENOMEFORGE_HOME="/opt/genomeforge"                       # [EDIT]
+
+# The `genomeforge` command (no pip needed).
+export PATH="$GENOMEFORGE_HOME/share/bin:$PATH"
+
+# Site profile: a bundled one (noguchi) or the generic `slurm` profile.
+export GENOMEFORGE_PROFILE="slurm"                               # [EDIT] e.g. noguchi
+
+# Site params file — required with the generic slurm profile (copy params.example.yaml).
+export GENOMEFORGE_PARAMS="/opt/genomeforge/site.params.yaml"    # [EDIT or unset with a bundled profile]
+
+# Default run directory (per project, on a disk-backed filesystem — never a RAM-backed /tmp).
+export GENOMEFORGE_RUNDIR="$HOME/genomeforge_run"                # [EDIT]
+
+# SLURM partition for the Nextflow head job (leave unset for the cluster default).
+# export GENOMEFORGE_PARTITION="compute"                         # [EDIT/optional]
+
+# Where pulled container images are cached (only needed if --vep_container pulls one).
+export NXF_SINGULARITY_CACHEDIR="$HOME/.genomeforge/container_cache"
