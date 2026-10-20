@@ -1,138 +1,138 @@
-# GenomeForge
+<!-- banner -->
+![GenomeForge](assets/banner.png)
 
-**Whole-genome germline joint calling, FASTQ to an annotated and QC-ed cohort callset.**
-A Nextflow DSL2 pipeline for SLURM clusters that runs on the
-[CallForge](https://github.com/aduton1000/callforge) container images and reference bundle.
-CallForge is the targeted-panel pipeline; GenomeForge is its whole-genome sibling.
+<p align="center">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-2b7bb9">
+  <img alt="nextflow" src="https://img.shields.io/badge/Nextflow-DSL2%20%E2%89%A524.10-0DC09D?logo=nextflow&logoColor=white">
+  <img alt="containers" src="https://img.shields.io/badge/containers-Apptainer%20%7C%20Singularity-1D9BF0">
+  <img alt="scheduler" src="https://img.shields.io/badge/scheduler-SLURM-8A6D1C">
+  <img alt="status" src="https://img.shields.io/badge/status-research-9E2B25">
+</p>
 
+<p align="center"><b>A reproducible Nextflow pipeline for whole-genome germline analysis —<br>FASTQ to a joint-genotyped, VQSR-filtered, annotated and QC'd cohort callset.</b></p>
+
+---
+
+## Overview
+
+GenomeForge takes paired-end Illumina whole-genome FASTQs, in any lane, flowcell, library or delivery layout, through alignment, duplicate marking, base-quality recalibration, scattered gVCF calling, joint genotyping, variant-quality recalibration, annotation and cohort QC. It is cohort- and site-agnostic: a sample sheet and a site profile describe the data and the cluster, and nothing in the workflow is edited between projects.
+
+GenomeForge is the **whole-genome** sibling of **[CallForge](https://github.com/aduton1000/callforge)**, the targeted-panel pipeline. It runs on the same container images and reference bundle, so a site that has deployed CallForge can run GenomeForge without building anything new.
+
+## Pipeline
+
+```mermaid
+flowchart LR
+  FASTQ([lane FASTQs]) --> ALIGN[align<br/>fastp · bwa-mem2 per lane]
+  ALIGN --> MD[markdup + BQSR<br/>per sample]
+  MD --> QC[sample QC<br/>mosdepth · WgsMetrics · verifyBamID2]
+  MD --> HC[HaplotypeCaller<br/>scattered gVCF]
+  HC --> JOINT[GenomicsDB ·<br/>GenotypeGVCFs]
+  JOINT --> VQSR[VQSR / hard filters<br/>normalise]
+  VQSR --> ANNO[annotate<br/>dbSNP · gnomAD · ClinVar · VEP]
+  ANNO --> COHORT[cohort QC<br/>somalier · PCA · MultiQC]
+  QC --> COHORT
 ```
-lanes ──fastp|bwa-mem2|sort──▶ lane BAM ──MarkDuplicates──▶ BQSR ──▶ sample BAM (+CRAM)
-sample BAM ──HaplotypeCaller × N shards──▶ gVCF shards ──GatherVcfs──▶ sample gVCF
-shards × samples ──GenomicsDBImport──▶ GenotypeGVCFs ──concat──▶ raw cohort VCF
-raw ──VQSR (SNP+INDEL) or hard filters──▶ norm/split ──▶ PASS VCF
-PASS ──per chromosome: dbSNP IDs, gnomAD AF, ClinVar, VEP──▶ annotated VCF + flat TSV
-BAMs/VCF ──samtools, mosdepth, CollectWgsMetrics, verifyBamID2, somalier, plink2 PCA──▶ QC summary + MultiQC
-```
 
-Any Illumina lane layout is accepted: samples may span several lanes, flowcells, libraries
-or deliveries; each lane-pair is aligned with its own read group and merged per sample.
+## Features
 
-## Layout
-
-| path | purpose |
-|---|---|
-| `main.nf`, `modules/*.nf` | workflow and processes (every process has a `stub:` for dry runs) |
-| `nextflow.config`, `conf/base.config` | parameters and per-label resources (site-neutral) |
-| `conf/noguchi.config` | site profile: Noguchi HPC paths, SLURM partition, CallForge images |
-| `conf/slurm.config` | generic SLURM + Singularity/Apptainer profile; pair with `params.example.yaml` |
-| `bin/make_samplesheet.py` | lane-level sample sheet from FASTQ directories (Novogene, bcl2fastq or generic names) |
-| `bin/fetch_resources.sh` | downloads hapmap/omni/1000G (VQSR) and the GATK WGS calling regions |
-| `bin/summarize_qc.py` | per-sample QC table with flags (depth, duplicates, contamination, sex, relatedness, Ti/Tv) |
-| `run_genomeforge.sh` | submits the Nextflow head job under sbatch with work/tmp on disk |
-| `test/make_stub_env.sh` | fake data layout for `-stub-run` DAG tests |
+- **Any lane layout.** One sample sheet row per lane-pair; samples may span lanes, flowcells, libraries and deliveries. Each lane is aligned with its own read group (`ID`, `SM`, `LB`, `PU`, `PL`, optional `CN`) and merged inside MarkDuplicates.
+- **GATK best-practice germline calling.** bwa-mem2 → MarkDuplicates → BQSR → HaplotypeCaller `-ERC GVCF` scattered over the GATK WGS calling regions → GenomicsDBImport → GenotypeGVCFs → VQSR (SNP and INDEL), with an automatic fallback to GATK hard filters when the training sets are absent.
+- **Annotation that scales.** Per-chromosome scatter of dbSNP rsIDs, gnomAD allele frequencies, ClinVar and VEP; multi-allelics split and left-aligned first; a flat per-variant TSV next to the annotated VCF.
+- **Cohort QC that flags, never drops.** Depth, duplicate rate, contamination (verifyBamID2), sex concordance from coverage and from somalier, relatedness, Ti/Tv, plus plink2 PCA and a MultiQC report; a one-row-per-sample summary with explicit flags.
+- **Reusable intermediates.** Per-sample whole-genome gVCFs are published for future joint calls; final BAMs can be archived as CRAM.
+- **Reproducible.** Pinned containers, `versions.txt` and `params.json` on every run, resumable from any failure, scratch kept on disk (never a RAM-backed `/tmp`).
+- **Robust sample-sheet builder.** Recognises Novogene, bcl2fastq and generic FASTQ names, reads flowcell and lane from read headers when the name lacks them, and refuses unpaired, truncated or unreadable files.
 
 ## Requirements
 
-Nextflow ≥ 24.10 (Java 17+), SLURM, Singularity or Apptainer, and the four CallForge images
-(`callforge.sif`, `callforge-annotate.sif`, `callforge-cohortqc.sif`, `callforge-burden.sif`;
-built from the CallForge repo's `env/` definitions). Reference bundle: a **chr-style no-alt
-GRCh38** with bwa-mem2 index, `.fai` and `.dict`; dbSNP, Mills and known-indels VCFs; hapmap,
-omni and 1000G phase-1 SNPs for VQSR; ClinVar; per-chromosome gnomAD sites files; a somalier
-sites VCF; a VEP cache. All VCFs must share the reference's contig naming (ClinVar is renamed
-automatically).
+- **Nextflow** ≥ 24.10 (Java 17+).
+- **SLURM** with **Apptainer** or **Singularity**.
+- The four **CallForge images** (`callforge.sif`, `callforge-annotate.sif`, `callforge-cohortqc.sif`, `callforge-burden.sif`), built from the [CallForge](https://github.com/aduton1000/callforge) `env/` definitions.
+- A **reference bundle**: chr-style no-alt GRCh38 with bwa-mem2 index, `.fai` and `.dict`; dbSNP, Mills and known-indels VCFs; hapmap, omni and 1000G phase-1 SNPs (VQSR); ClinVar; per-chromosome gnomAD sites; a somalier sites VCF; a VEP cache. See [`docs/hpc_deployment.md`](docs/hpc_deployment.md).
 
-## Quick start (Noguchi HPC)
+## Installation
 
 ```bash
-# one-off: stage the VQSR training sets + calling regions next to the other annotation files
-bash /hpc/opt/genomeforge/bin/fetch_resources.sh /hpc/opt/callforge/refs/annotation_db
-
-# sample sheet from the delivery directories (read-only; fails loudly on unpaired/truncated files)
-python3 /hpc/opt/genomeforge/bin/make_samplesheet.py \
-    --roots /path/to/delivery-part1 /path/to/delivery-part2 \
-    --metadata phenotypes.csv --out samplesheet.csv
-#   --exclude S1,S2            leave samples out      --sample-from dir|filename   override id source
-#   --fastq-csv pairs.csv      start from an existing sample_id,fastq_1,fastq_2 list instead of scanning
-
-# dry run of the DAG, then the real run (resumable: re-run the same command after a failure)
-export GENOMEFORGE_RUNDIR=/hpc/data/<lab>/<project>/genomeforge_run
-bash /hpc/opt/genomeforge/run_genomeforge.sh --input samplesheet.csv -stub-run
-bash /hpc/opt/genomeforge/run_genomeforge.sh --input samplesheet.csv
+git clone https://github.com/aduton1000/genomeforge.git /opt/genomeforge      # or ~/genomeforge
+cd /opt/genomeforge
+nextflow run main.nf --help
 ```
 
-`phenotypes.csv` is optional: `sample_id` plus `sex` (M/F) and `phenotype` if known; sex drives
-the sex-concordance check, nothing else uses it.
+A run selects a **site profile**: `slurm` (generic; pair it with a copy of [`params.example.yaml`](params.example.yaml)) or a bundled site profile such as `noguchi` (paths, partition and images built in; add your own as `conf/<site>.config`). The `stub` profile dry-runs the whole DAG without containers.
 
-On another cluster: copy `params.example.yaml`, fill in the paths, and run with
-`GENOMEFORGE_PROFILE=slurm GENOMEFORGE_PARAMS=site.params.yaml`, or call `nextflow run` directly.
+## Quickstart
 
-## Outputs (`results/`)
+```bash
+# 1. stage the VQSR training sets and the GATK WGS calling regions next to the other annotation files (~2.5 GB, once per site)
+bash bin/fetch_resources.sh /path/to/annotation_db
 
-| directory | content |
-|---|---|
-| `01_fastp/` | per-lane trimming reports |
-| `02_bams/` | `<sample>.bam` + `.bai` (BQSR-recalibrated; CRAM with `--archive_cram true`) |
-| `03_qc/` | markdup metrics, BQSR tables, samtools, mosdepth, CollectWgsMetrics, verifyBamID2 |
-| `04_gvcf/` | per-sample whole-genome gVCF (reusable for future joint calls) |
-| `05_joint/` | `cohort.raw.vcf.gz`, `cohort.filtered.vcf.gz`, `cohort.filtered.norm.vcf.gz`, `cohort.pass.vcf.gz`, `vqsr/` tranches |
-| `06_annotated/` | `cohort.annotated.vcf.gz` (dbSNP, gnomAD, ClinVar, VEP), `variants.flat.tsv.gz` |
-| `07_cohort/` | `cohort_qc_summary.tsv/.md`, somalier relatedness + sex, plink2 PCA, bcftools stats, `cohort_multiqc.html` |
-| `pipeline_info/` | resource check, scatter intervals, timeline/report/trace/dag, `versions.txt`, `params.json` |
+# 2. build the sample sheet from the FASTQ directories (read-only; fails loudly on unpaired or truncated files)
+python3 bin/make_samplesheet.py --roots /data/delivery-part1 /data/delivery-part2 --metadata phenotypes.csv --out samplesheet.csv
 
-## Key parameters
+# 3. dry-run the DAG, then run (resumable: repeat the same command after any failure)
+export GENOMEFORGE_RUNDIR=/data/projects/my-cohort/genomeforge_run
+export GENOMEFORGE_PROFILE=slurm GENOMEFORGE_PARAMS=/data/projects/my-cohort/site.params.yaml   # or GENOMEFORGE_PROFILE=noguchi
+bash run_genomeforge.sh --input samplesheet.csv -stub-run
+bash run_genomeforge.sh --input samplesheet.csv
+```
 
-| parameter | default | notes |
-|---|---|---|
+`run_genomeforge.sh` submits the Nextflow head job under `sbatch` so it survives logout, and keeps `work/`, `tmp/` and `results/` under the run directory. Monitor with `tail -f $GENOMEFORGE_RUNDIR/nextflow.log` or `squeue -u $USER`.
+
+## Usage
+
+**Sample sheet.** One row per lane-pair: `sample_id,lane_id,library,flowcell,lane,fastq_1,fastq_2[,sex,phenotype]`. `bin/make_samplesheet.py` writes it from directories or from an existing `sample_id,fastq_1,fastq_2` list:
+
+```bash
+python3 bin/make_samplesheet.py --roots DIR [DIR ...] --out samplesheet.csv \
+    [--metadata clinical.csv] [--exclude S1,S2] [--sample-from auto|dir|filename] [--min-bytes 1000000000]
+python3 bin/make_samplesheet.py --fastq-csv pairs.csv --out samplesheet.csv
+```
+
+`clinical.csv` needs a `sample_id` column; `sex` (M/F) drives the sex-concordance check and `phenotype` is carried into the QC table. Nothing else is used by the pipeline.
+
+**Direct invocation** (what the launcher wraps):
+
+```bash
+nextflow run main.nf -profile slurm -params-file site.params.yaml --input samplesheet.csv --outdir results -resume
+nextflow run main.nf -profile noguchi --input samplesheet.csv --outdir results -resume
+```
+
+**Key options** (all in [`nextflow.config`](nextflow.config)):
+
+| option | default | purpose |
+|:-------|:--------|:--------|
 | `--scatter_count` | 48 | HaplotypeCaller / joint-genotyping shards |
 | `--calling_regions` | site profile | GATK `wgs_calling_regions.hg38.interval_list`; falls back to whole primary chromosomes |
-| `--filtering` | `vqsr` | `hard` for GATK hard filters; automatic fallback when training sets are missing |
+| `--filtering` | `vqsr` | `hard` for GATK hard filters; automatic fallback if training sets are missing |
 | `--snp_tranche` / `--indel_tranche` | 99.7 / 99.7 | VQSR truth-sensitivity levels |
-| `--trim` | true | fastp streamed into bwa-mem2 (no trimmed FASTQs written) |
+| `--trim` | `true` | fastp streamed into bwa-mem2 (no trimmed FASTQs written) |
 | `--sequencing_center` | null | read-group `CN` tag |
-| `--gnomad_pattern` / `--gnomad_fields` | exomes v4.1 / `AF,AF_afr,AF_grpmax,nhomalt` | per-chromosome gnomAD file name template and INFO fields copied |
-| `--run_vep`, `--run_pca`, `--run_contamination` | true | switch stages off |
-| `--archive_cram` | false | CRAM next to each final BAM |
-| `--qc_min_depth`, `--qc_max_dup`, `--qc_max_contam`, `--qc_min_mapped` | 20 / 0.25 / 0.03 / 0.95 | QC flags (nothing is dropped) |
+| `--gnomad_pattern` / `--gnomad_fields` | exomes v4.1 / `AF,AF_afr,AF_grpmax,nhomalt` | gnomAD file template and INFO fields copied |
+| `--run_vep` / `--run_pca` / `--run_contamination` | `true` | switch stages off |
+| `--archive_cram` | `false` | CRAM next to each final BAM |
+| `--qc_min_depth` / `--qc_max_dup` / `--qc_max_contam` / `--qc_min_mapped` | 20 / 0.25 / 0.03 / 0.95 | QC flag thresholds |
 
-## Design notes
+Per-process resources live in [`conf/base.config`](conf/base.config); memory and time scale with the retry attempt.
 
-- **Read groups**: `ID=<flowcell>.L<lane>`, `SM=<sample>`, `LB=<library>`, `PU=<flowcell>.<lane>`,
-  `PL=ILLUMINA`; lanes are aligned separately and merged inside MarkDuplicates.
-- **Scatter**: `SplitIntervals` over the calling regions; GenomicsDBImport merges input intervals.
-- **Filtering**: VQSR with hapmap/omni/1000G/dbsnp (SNP) and Mills/dbsnp (INDEL); hard filters
-  otherwise. Multi-allelics are split and left-aligned before annotation.
-- **Scratch**: every task uses `./tmp` inside its work directory; node `/tmp` is never used.
-- **Resources**: `conf/base.config`; memory and time scale with the retry attempt.
+## Inputs and outputs
 
-## First-run checklist on a new site
+**Inputs.** A lane-level sample sheet, a chr-style no-alt GRCh38 with bwa-mem2 index, and the annotation bundle listed under *Requirements*. Required parameters: `--input` plus the site profile (or `--fasta`, `--dbsnp`, `--mills`, `--known_indels`, `--clinvar`, `--gnomad_dir`, `--somalier_sites`, `--vep_cache` and the container paths).
 
-1. `-stub-run` to confirm paths, containers and scheduler submission.
-2. A real run on two or three samples with `--scatter_count 8` (about a day): exercises every
-   tool once, including the gnomAD tag rename (`bcftools annotate -c INFO/gnomAD_AF:=AF`) and
-   the verifyBamID2 resource auto-detection inside the cohortqc image.
-3. The full cohort with `-resume`.
+**Outputs (`results/`).** Analysis-ready BAMs (`02_bams/`); per-sample gVCFs (`04_gvcf/`); the raw, VQSR-filtered, normalised and PASS cohort VCFs with tranche files (`05_joint/`); the annotated VCF and `variants.flat.tsv.gz` (`06_annotated/`); `cohort_qc_summary.tsv`, somalier relatedness and sex, plink2 PCA, bcftools stats and `cohort_multiqc.html` (`07_cohort/`); per-sample QC (`03_qc/`); and `pipeline_info/` with the resource check, scatter intervals, `versions.txt`, `params.json`, trace, timeline and DAG. Details in [`docs/outputs_overview.md`](docs/outputs_overview.md).
 
-## Updating the CallForge checkout on the Noguchi server (one-off housekeeping)
+## Documentation
 
-The CallForge `main` history on GitHub was rewritten on 2026-10-20 (commit-message cleanup;
-file contents unchanged, new head `3f27e63`). A server checkout at `1781846` cannot
-fast-forward: reset it instead of pulling. It also carries an untracked `.tools/` directory
-and stray gnomAD index files in the repo root.
+- **HPC deployment**: [`docs/hpc_deployment.md`](docs/hpc_deployment.md) — images, reference bundle, site profiles, running, monitoring, troubleshooting.
+- **Outputs overview**: [`docs/outputs_overview.md`](docs/outputs_overview.md) — what a run produces and how to read the QC summary.
+- **Design notes**: [`docs/decisions.md`](docs/decisions.md) — choices made, their rationale, and what to revisit on real data.
 
-```bash
-cd /hpc/opt/callforge/repo
-git status --short                                  # expect only "?? .tools/"
-git fetch origin
-git reset --hard origin/main                        # -> 3f27e63; .tools/ is untracked and survives
-rm -f gnomad.exomes.v4.1.sites.chr*.vcf.bgz.tbi     # stray, already git-ignored
-grep -qx '.tools/' .gitignore || printf '\n# local tool binaries (nextflow etc.)\n.tools/\n' >> .gitignore
-git add .gitignore
-git commit -m "gitignore: ignore local .tools/ binaries directory"
-git push origin main
-git status --short                                  # should print nothing
-callforge --version                                 # 0.1.0
-```
+## GenomeForge and CallForge
 
-## License
+**[CallForge](https://github.com/aduton1000/callforge)** analyses targeted-capture panels designed by **[CaptureForge](https://github.com/aduton1000/captureforge)**; GenomeForge analyses whole genomes. They share images, references and output conventions, and GenomeForge's annotated VCF and gVCFs feed CallForge's `anno`, `cohortqc` and `burden` subcommands. Each runs independently.
 
-MIT (same as CallForge).
+## Citation, license, and issues
+
+- **Cite**: see [`CITATION.cff`](CITATION.cff).
+- **License**: MIT — see [`LICENSE`](LICENSE).
+- **Issues / contributions**: open an issue or pull request on the [GitHub repository](https://github.com/aduton1000/genomeforge).

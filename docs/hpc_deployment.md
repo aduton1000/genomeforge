@@ -1,0 +1,159 @@
+# GenomeForge — HPC deployment (SLURM + Apptainer/Singularity)
+
+GenomeForge is a cluster pipeline: a 30× whole genome needs tens of CPU-hours for
+alignment and tens more for calling, and a cohort runs for days. This page covers a central
+install, the container images, the reference bundle, site profiles, running, monitoring and
+troubleshooting. All `/hpc/...` and `/opt/...` paths are **examples**; substitute your layout.
+
+## 0. One-time: central install
+
+```bash
+cd /opt
+git clone https://github.com/aduton1000/genomeforge.git
+cd genomeforge
+nextflow run main.nf --help           # prints usage; confirms Nextflow ≥ 24.10 and Java 17+
+```
+
+No host conda environment is needed. Nextflow itself must be on `PATH` (or use a site
+module).
+
+## 1. Container images
+
+GenomeForge runs every task inside the **CallForge** images:
+
+| image | tools used here |
+|:------|:----------------|
+| `callforge.sif` | bwa-mem2, samtools, bcftools, htslib, GATK 4.6, picard, fastp, mosdepth, multiqc, python (QC summary) |
+| `callforge-annotate.sif` | ensembl-vep 112 (`--vep_container` can point at the official `ensemblorg/ensembl-vep` image instead) |
+| `callforge-cohortqc.sif` | somalier, verifybamid2 |
+| `callforge-burden.sif` | plink2 |
+
+Build them once per site from the CallForge repository (`apptainer build callforge.sif
+env/callforge.def`; `bin/build_stage_images.sh` for the rest) and point the site profile at
+them. Verify with a non-login shell:
+
+```bash
+apptainer exec /opt/callforge/images/callforge.sif bwa-mem2 version
+apptainer exec /opt/callforge/images/callforge.sif gatk --version
+apptainer exec /opt/callforge/images/callforge-cohortqc.sif somalier --version
+apptainer exec /opt/callforge/images/callforge-burden.sif plink2 --version
+```
+
+## 2. Reference bundle (stage once, shared read-only)
+
+All VCFs must use the **same contig naming as the FASTA** (ClinVar is the one exception
+and is renamed by the pipeline). `CHECK_RESOURCES` verifies this at the start of every run.
+
+| item | example | notes |
+|:-----|:--------|:------|
+| genome | `GRCh38_no_alt.chr.fa` + `.fai` + `.dict` + bwa-mem2 index (`.0123 .amb .ann .bwt.2bit.64 .pac`) | chr-style, no alt/decoy contigs |
+| calling regions | `wgs_calling_regions.hg38.interval_list` | GATK bundle; `bin/fetch_resources.sh` |
+| known sites | `dbsnp.vcf.gz`, `Mills_and_1000G_gold_standard.indels.hg38.vcf.gz`, `Homo_sapiens_assembly38.known_indels.vcf.gz` | BQSR |
+| VQSR | `hapmap_3.3.hg38.vcf.gz`, `1000G_omni2.5.hg38.vcf.gz`, `1000G_phase1.snps.high_confidence.hg38.vcf.gz` | `bin/fetch_resources.sh` |
+| annotation | `clinvar.vcf.gz`, gnomAD per-chromosome sites (`gnomad.exomes.v4.1.sites.chrN.vcf.bgz` or genomes), VEP cache (`<cache>/homo_sapiens/112_GRCh38`) | |
+| cohort QC | somalier `sites.hg38.vcf.gz` | verifyBamID2's SVD resource ships inside the cohortqc image |
+
+```bash
+bash bin/fetch_resources.sh /refs/GRCh38          # idempotent, resumable, ~2.5 GB
+```
+
+Building a bwa-mem2 index for GRCh38 needs ~72 GB RAM and about an hour:
+
+```bash
+apptainer exec /opt/callforge/images/callforge.sif bwa-mem2 index GRCh38_no_alt.chr.fa
+apptainer exec /opt/callforge/images/callforge.sif samtools faidx GRCh38_no_alt.chr.fa
+apptainer exec /opt/callforge/images/callforge.sif gatk CreateSequenceDictionary -R GRCh38_no_alt.chr.fa
+```
+
+## 3. Site profiles
+
+- **`-profile noguchi`** — the Noguchi HPC: partition `global`, bind `/hpc`, CallForge images
+  and references under `/hpc/opt/callforge`. Nothing else to configure.
+- **`-profile slurm`** — generic SLURM + Singularity/Apptainer. Copy
+  [`params.example.yaml`](../params.example.yaml), fill in the paths, partition, account and
+  bind roots, and pass it with `-params-file`. Add a `conf/<site>.config` modelled on
+  `conf/noguchi.config` if you prefer a named profile.
+- **`-profile stub`** — local dry run of the DAG with `-stub-run`; `test/make_stub_env.sh`
+  builds a fake data layout for it.
+
+Container binds: Apptainer auto-mounts only `$HOME`, `/tmp` and the working directory.
+Set `bind_paths` to the root(s) holding the references and the data (comma-separated).
+
+## 4. Run on SLURM
+
+```bash
+# sample sheet (read-only on the data; fails loudly on unpaired/truncated files)
+python3 /opt/genomeforge/bin/make_samplesheet.py --roots /data/cohort/delivery --metadata phenotypes.csv --out samplesheet.csv
+
+# head job under sbatch; work/, tmp/, logs/ and results/ under the run directory
+export GENOMEFORGE_RUNDIR=/data/projects/cohort/genomeforge_run
+export GENOMEFORGE_PROFILE=slurm GENOMEFORGE_PARAMS=/data/projects/cohort/site.params.yaml   # or GENOMEFORGE_PROFILE=noguchi
+bash /opt/genomeforge/run_genomeforge.sh --input samplesheet.csv -stub-run      # seconds
+bash /opt/genomeforge/run_genomeforge.sh --input samplesheet.csv               # the real run
+```
+
+The launcher exports `NXF_WORK`, `TMPDIR` and `NXF_TEMP` into the run directory, raises the
+open-file limit for GenomicsDB, logs to `nextflow.log`, and passes `-resume`, so re-running
+the same command after a failure continues from the last completed task.
+
+**Sizing.** Per 30× sample: alignment ≈ 60–100 CPU-h, HaplotypeCaller ≈ 30–60 CPU-h,
+peak RAM 64 GB (bwa-mem2 at 32 threads), 72 GB for an index build. Storage: final BAMs
+≈ 1.1× the compressed FASTQ, `work/` peak ≈ 4×, so plan 5× the FASTQ size. A 64-sample 30×
+cohort on four 72-thread nodes takes 5–7 days of wall-clock.
+
+## 5. Monitoring and resuming
+
+```bash
+tail -f $GENOMEFORGE_RUNDIR/nextflow.log
+squeue -u $USER
+open $GENOMEFORGE_RUNDIR/results/pipeline_info/report.html      # per-task resources, after completion
+```
+
+Nextflow retries failed tasks up to `--max_retries` (default 2) with memory and time scaled
+by attempt. To resume after the head job itself was killed, re-run the launcher. To clean
+intermediates after a successful run, `nextflow clean -f -k <run name>` or remove `work/`.
+
+## 6. Validate-at-deployment checklist
+
+1. `-stub-run` on the cluster: paths resolve, containers are found, tasks reach the queue.
+2. A real run on **two or three samples** with `--scatter_count 8`: exercises every tool once
+   in about a day. Check in particular the gnomAD tag rename in `ANNOTATE_CHROM`
+   (`bcftools annotate -c INFO/gnomAD_AF:=AF`) and that `VERIFYBAMID` found its SVD resource
+   (`03_qc/verifybamid/<sample>.verifybamid.log`).
+3. Review `07_cohort/cohort_qc_summary.md` and `05_joint/vqsr/*.tranches`.
+4. The full cohort with `-resume`.
+
+## 7. Troubleshooting
+
+| symptom | cause / fix |
+|:--------|:------------|
+| `Missing site parameters: …` at start | no site profile or params file; use `-profile noguchi` or `-profile slurm -params-file site.params.yaml` |
+| `MISMATCH: … contig style` in `resource_check.txt` | a VCF is Ensembl-named while the FASTA is chr-named (or vice versa); rename with `bcftools annotate --rename-chrs` |
+| `MISSING bwa-mem2 index part` | build the index next to the FASTA (section 2) |
+| tasks fail with exit 137 / OOM | retries scale memory automatically; raise the label in `conf/base.config` if a third attempt is needed |
+| `No such file` for a FASTQ inside a task | the data root is not bound into the container; add it to `bind_paths` |
+| VEP: cache version mismatch | `--vep_release` must equal the cache directory (`homo_sapiens/<release>_GRCh38`) and the image's VEP version |
+| GenomicsDBImport "too many open files" | the launcher raises `ulimit -n`; if the site caps it, lower `--batch-size` in `modules/joint.nf` |
+| head job dies at logout | use `run_genomeforge.sh` (sbatch) rather than running `nextflow` interactively |
+
+## 8. Noguchi HPC notes
+
+- Login node `node1` is also a compute node; `/tmp` is RAM-backed tmpfs — never point
+  `NXF_WORK`, `TMPDIR` or `process.scratch` at it (the launcher and `conf/base.config` do
+  not).
+- CallForge lives at `/hpc/opt/callforge/repo` with images in `/hpc/opt/callforge/images`
+  and references in `/hpc/opt/callforge/refs`; use `GRCh38_chr/GRCh38.full.chr.fa` (chr-style
+  no-alt), not `GRCh38_noalt.clean.fa` (Ensembl-named).
+- Keeping the CallForge checkout current: its `main` history was rewritten on 2026-10-20
+  (commit-message cleanup, identical file contents, head `3f27e63`), so a checkout from
+  before that date must be reset rather than pulled:
+
+  ```bash
+  cd /hpc/opt/callforge/repo
+  git status --short                                # expect only "?? .tools/"
+  git fetch origin && git reset --hard origin/main   # .tools/ is untracked and survives
+  rm -f gnomad.exomes.v4.1.sites.chr*.vcf.bgz.tbi   # stray, already git-ignored
+  grep -qx '.tools/' .gitignore || printf '\n# local tool binaries (nextflow etc.)\n.tools/\n' >> .gitignore
+  git add .gitignore && git commit -m "gitignore: ignore local .tools/ binaries directory" && git push origin main
+  callforge --version
+  ```

@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+title: >-
+  GenomeForge: a whole-genome germline joint-calling pipeline
+  (FASTQ → annotated, QC'd cohort callset)
+message: If you use GenomeForge, please cite it.
+type: software
+authors:
+  - family-names: Adu
+    given-names: Bright
+    affiliation: "Genomics and Bioinformatics Core Facility, Noguchi Memorial Institute for Medical Research, University of Ghana, Legon, Ghana"
+abstract: >-
+  GenomeForge is a reusable Nextflow (DSL2) pipeline for whole-genome germline
+  analysis on SLURM clusters. It takes paired-end Illumina FASTQs in any lane,
+  flowcell or library layout through per-lane bwa-mem2 alignment, duplicate
+  marking, base-quality recalibration, scattered HaplotypeCaller gVCF calling,
+  GenomicsDB joint genotyping, VQSR, normalisation, dbSNP/gnomAD/ClinVar/VEP
+  annotation and cohort QC (relatedness, sex, contamination, PCA, MultiQC). It
+  runs on the CallForge container images and reference bundle and is the
+  whole-genome sibling of the CallForge targeted-panel pipeline.
+keywords:
+  - whole-genome sequencing
+  - germline variant calling
+  - joint genotyping
+  - GATK
+  - nextflow
+  - bioinformatics
+license: MIT
+version: 0.1.0
+date-released: 2026-10-20
+repository-code: https://github.com/aduton1000/genomeforge
+references:
+  - type: software
+    title: "CallForge: a targeted-capture germline analysis pipeline"
+    notes: "Sibling pipeline; GenomeForge reuses its container images and reference bundle."

@@ -1,6 +1,6 @@
 # GenomeForge — example parameter file for a generic SLURM/Singularity site. Copy, edit, then:
 #   nextflow run main.nf -profile slurm -params-file site.params.yaml --input samplesheet.csv
-# On the Noguchi HPC none of this is needed: -profile noguchi carries the paths.
+# A bundled site profile (conf/<site>.config, e.g. noguchi) can carry these paths instead.
 
 input:  null                       # --input samplesheet.csv  (bin/make_samplesheet.py)
 outdir: results

@@ -23,7 +23,7 @@ def helpMessage() {
     Required:
       --input          sample sheet CSV (one row per lane-pair): sample_id,lane_id,library,flowcell,lane,fastq_1,fastq_2[,sex,phenotype]
                        build it with: bin/make_samplesheet.py --roots <delivery dirs> --out samplesheet.csv
-    Key options (defaults in nextflow.config / params.noguchi.yaml):
+    Key options (defaults in nextflow.config; site paths from a profile or params.example.yaml):
       --fasta          chr-style no-alt GRCh38 with bwa-mem2 index, .fai, .dict
       --calling_regions  GATK wgs_calling_regions.hg38.interval_list (bin/fetch_resources.sh) or BED
       --scatter_count  48      --filtering vqsr|hard      --trim true|false
