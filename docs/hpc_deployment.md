@@ -145,15 +145,12 @@ intermediates after a successful run, `nextflow clean -f -k <run name>` or remov
   and references in `/hpc/opt/callforge/refs`; use `GRCh38_chr/GRCh38.full.chr.fa` (chr-style
   no-alt), not `GRCh38_noalt.clean.fa` (Ensembl-named).
 - Keeping the CallForge checkout current: its `main` history was rewritten on 2026-10-20
-  (commit-message cleanup, identical file contents, head `3f27e63`), so a checkout from
-  before that date must be reset rather than pulled:
+  (commit-message cleanup, identical file contents), so a checkout from before that date
+  must be reset rather than pulled; afterwards a plain `git pull --ff-only` works again.
 
   ```bash
   cd /hpc/opt/callforge/repo
-  git status --short                                # expect only "?? .tools/"
-  git fetch origin && git reset --hard origin/main   # .tools/ is untracked and survives
-  rm -f gnomad.exomes.v4.1.sites.chr*.vcf.bgz.tbi   # stray, already git-ignored
-  grep -qx '.tools/' .gitignore || printf '\n# local tool binaries (nextflow etc.)\n.tools/\n' >> .gitignore
-  git add .gitignore && git commit -m "gitignore: ignore local .tools/ binaries directory" && git push origin main
+  git fetch origin && git reset --hard origin/main   # untracked .tools/ survives
+  rm -f gnomad.exomes.v4.1.sites.chr*.vcf.bgz.tbi   # stray, git-ignored
   callforge --version
   ```
