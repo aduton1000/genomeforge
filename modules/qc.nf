@@ -3,7 +3,7 @@
 process SAMTOOLS_STATS {
     tag "${sample}"
     label 'qc'
-    publishDir "${params.outdir}/03_qc/samtools", mode: params.publish_mode
+    publishDir "${params.outdir}/03_sample_qc/samtools", mode: params.publish_mode
 
     input:
     tuple val(sample), path(bam), path(bai)
@@ -29,7 +29,7 @@ process SAMTOOLS_STATS {
 process MOSDEPTH {
     tag "${sample}"
     label 'qc'
-    publishDir "${params.outdir}/03_qc/mosdepth", mode: params.publish_mode
+    publishDir "${params.outdir}/03_sample_qc/mosdepth", mode: params.publish_mode
 
     input:
     tuple val(sample), path(bam), path(bai)
@@ -54,7 +54,7 @@ process MOSDEPTH {
 process WGS_METRICS {
     tag "${sample}"
     label 'wgsmetrics'
-    publishDir "${params.outdir}/03_qc/wgs_metrics", mode: params.publish_mode
+    publishDir "${params.outdir}/03_sample_qc/wgs_metrics", mode: params.publish_mode
 
     input:
     tuple val(sample), path(bam), path(bai)
@@ -80,7 +80,7 @@ process WGS_METRICS {
 process VERIFYBAMID {
     tag "${sample}"
     label 'qc'
-    publishDir "${params.outdir}/03_qc/verifybamid", mode: params.publish_mode
+    publishDir "${params.outdir}/03_sample_qc/verifybamid", mode: params.publish_mode
 
     input:
     tuple val(sample), path(bam), path(bai)

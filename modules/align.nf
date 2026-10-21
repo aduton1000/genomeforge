@@ -3,8 +3,8 @@
 process ALIGN_LANE {
     tag "${meta.id}:${meta.lane}"
     label 'align'
-    publishDir "${params.outdir}/01_fastp", mode: params.publish_mode, pattern: "*.fastp.{json,html}"
-    publishDir "${params.outdir}/01_fastp/logs", mode: params.publish_mode, pattern: "*.log"
+    publishDir "${params.outdir}/01_trim_reports", mode: params.publish_mode, pattern: "*.fastp.{json,html}"
+    publishDir "${params.outdir}/01_trim_reports/logs", mode: params.publish_mode, pattern: "*.log"
 
     input:
     tuple val(meta), path(r1), path(r2)
@@ -48,7 +48,7 @@ process ALIGN_LANE {
 process MARKDUP {
     tag "${sample}"
     label 'markdup'
-    publishDir "${params.outdir}/03_qc/markdup", mode: params.publish_mode, pattern: "*.metrics.txt"
+    publishDir "${params.outdir}/03_sample_qc/markdup", mode: params.publish_mode, pattern: "*.metrics.txt"
 
     input:
     tuple val(sample), path(bams), path(bais)
@@ -78,7 +78,7 @@ process MARKDUP {
 process BASERECAL {
     tag "${sample}"
     label 'bqsr'
-    publishDir "${params.outdir}/03_qc/bqsr", mode: params.publish_mode
+    publishDir "${params.outdir}/03_sample_qc/bqsr", mode: params.publish_mode
 
     input:
     tuple val(sample), path(bam), path(bai)
@@ -107,7 +107,7 @@ process BASERECAL {
 process APPLYBQSR {
     tag "${sample}"
     label 'bqsr'
-    publishDir "${params.outdir}/02_bams", mode: params.publish_mode, pattern: "*.{bam,bai,cram,crai}"
+    publishDir "${params.outdir}/02_alignments", mode: params.publish_mode, pattern: "*.{bam,bai,cram,crai}"
 
     input:
     tuple val(sample), path(bam), path(bai), path(table)

@@ -13,6 +13,7 @@ The CLI is stdlib-only. Every analytical tool runs inside the CallForge containe
 Nextflow starts per task; nothing is installed on the host.
 """
 import argparse
+import glob
 import importlib.util
 import os
 import shlex
@@ -40,6 +41,7 @@ environment (all optional; command-line flags override them):
   GENOMEFORGE_PARAMS      -params-file with the site paths (needed with the generic slurm profile)
   GENOMEFORGE_RUNDIR      run directory holding work/, tmp/, logs/, results/ (default: ./genomeforge_run)
   GENOMEFORGE_PARTITION   SLURM partition for the head job (default: the cluster default)
+  GENOMEFORGE_EXCLUDE_NODES  nodes to keep free, e.g. node4
 """
 
 
@@ -152,6 +154,9 @@ examples:
   # override any pipeline parameter inline (they pass straight through to Nextflow)
   genomeforge run --profile noguchi --input samplesheet.csv --filtering hard --archive_cram true --trim false
 
+  # keep one node free for other users; the head job and every task stay off it
+  genomeforge run --profile noguchi --input samplesheet.csv --exclude-nodes node4
+
   # show the command that would be submitted, without submitting it
   genomeforge run --profile noguchi --input samplesheet.csv --print-cmd
 
@@ -187,6 +192,10 @@ def cmd_run(rest):
     ap.add_argument("--params-file", default=d["params"], metavar="YAML", help="site parameter file (copy params.example.yaml)")
     ap.add_argument("--rundir", default=d["rundir"], metavar="DIR", help=f"run directory (default {d['rundir']})")
     ap.add_argument("--partition", default=d["partition"], help="SLURM partition for the head job (default: cluster default)")
+    ap.add_argument("--exclude-nodes", default=os.environ.get("GENOMEFORGE_EXCLUDE_NODES"), metavar="LIST",
+                    help="SLURM nodes to keep free for other users, e.g. node4 (head job and every task avoid them)")
+    ap.add_argument("--max-restarts", type=int, default=20, help="self-resubmissions of the head job after an unfinished exit (default 20)")
+    ap.add_argument("--restart-delay", type=int, default=600, help="seconds to wait before a self-resubmission (default 600)")
     ap.add_argument("--stub", action="store_true", help="dry-run the DAG with stub tasks (no containers executed)")
     ap.add_argument("--foreground", action="store_true", help="run Nextflow in this shell instead of an sbatch head job")
     ap.add_argument("--no-resume", action="store_true", help="start a fresh run instead of resuming")
@@ -212,6 +221,8 @@ def cmd_run(rest):
            "-profile", known.profile, "-work-dir", os.path.join(rundir, "work")]
     if known.params_file:
         cmd += ["-params-file", os.path.abspath(known.params_file)]
+    if known.exclude_nodes and "--slurm_exclude" not in passthrough:
+        cmd += ["--slurm_exclude", known.exclude_nodes]
     if known.input:
         cmd += ["--input", os.path.abspath(known.input)]
     if not known.no_resume:
@@ -227,7 +238,7 @@ def cmd_run(rest):
 
     env = {**os.environ,
            "NXF_WORK": os.path.join(rundir, "work"), "TMPDIR": os.path.join(rundir, "tmp"),
-           "NXF_TEMP": os.path.join(rundir, "tmp"), "NXF_ANSI_LOG": "false",
+           "NXF_TEMP": os.path.join(rundir, "tmp"), "NXF_ANSI_LOG": "false", "NXF_OFFLINE": "true",
            "NXF_OPTS": f"-Xms1g -Xmx6g -Djava.io.tmpdir={os.path.join(rundir, 'tmp')}"}
     env.setdefault("NXF_SINGULARITY_CACHEDIR", os.path.expanduser("~/.genomeforge/container_cache"))
 
@@ -239,23 +250,60 @@ def cmd_run(rest):
         return subprocess.call(cmd, cwd=rundir, env=env)
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
+    import hashlib
+    jobname = "genomeforge-" + hashlib.sha1(rundir.encode()).hexdigest()[:8]     # one head chain per run directory
     head = os.path.join(rundir, "logs", f"head_{stamp}.sbatch")
+    done = os.path.join(rundir, "logs", f"head_{stamp}.complete")
     exports = "\n".join(f"export {k}={shlex.quote(v)}" for k, v in env.items()
-                        if k in ("NXF_WORK", "TMPDIR", "NXF_TEMP", "NXF_ANSI_LOG", "NXF_OPTS", "NXF_SINGULARITY_CACHEDIR"))
+                        if k in ("NXF_WORK", "TMPDIR", "NXF_TEMP", "NXF_ANSI_LOG", "NXF_OFFLINE", "NXF_OPTS", "NXF_SINGULARITY_CACHEDIR"))
+    sbatch_opts = [f"--job-name={jobname}", "--cpus-per-task=2", "--mem=8G", "--requeue", "--open-mode=append",
+                   f"--output={rundir}/logs/head_{stamp}.out"]
+    if known.partition:
+        sbatch_opts.append(f"--partition={known.partition}")
+    if known.exclude_nodes:
+        sbatch_opts.append(f"--exclude={known.exclude_nodes}")
     with open(head, "w") as fh:
-        fh.write("#!/bin/bash\n#SBATCH --job-name=genomeforge-head\n")
-        if known.partition:
-            fh.write(f"#SBATCH --partition={known.partition}\n")
-        fh.write(f"#SBATCH --cpus-per-task=2\n#SBATCH --mem=8G\n#SBATCH --output={rundir}/logs/head_{stamp}.out\n"
-                 f"set -u\ncd {shlex.quote(rundir)}\n{exports}\nulimit -n 65536 2>/dev/null || true\n"
-                 f"echo \"GenomeForge head job $SLURM_JOB_ID on $(hostname) at $(date)\"\n"
-                 f"{shown}\nrc=$?\necho \"head job finished at $(date) with status $rc\"\nexit $rc\n")
+        fh.write("#!/bin/bash\n" + "".join(f"#SBATCH {o}\n" for o in sbatch_opts))
+        fh.write(f"""# GenomeForge head job — self-resuming.
+#  * SLURM --requeue restarts it after a node failure; the queue state survives a controller restart.
+#  * On any unfinished exit (Nextflow crash, power trip while the node was up) it sleeps and
+#    resubmits itself with -resume, up to GF_MAX attempts. A marker file ends the chain.
+#  * Only one head job per run directory ever runs: a second instance exits immediately.
+set -u
+cd {shlex.quote(rundir)}
+{exports}
+HEAD={shlex.quote(head)}
+DONE={shlex.quote(done)}
+GF_ATTEMPT=${{GF_ATTEMPT:-1}}
+GF_MAX={known.max_restarts}
+GF_DELAY={known.restart_delay}
+ulimit -n 65536 2>/dev/null || true
+[ -f "$DONE" ] && {{ echo "run already completed ($DONE); nothing to do"; exit 0; }}
+others=$(squeue -h -u "$USER" -n {jobname} -t RUNNING -o %i | grep -vx "${{SLURM_JOB_ID:-x}}" || true)
+[ -z "$others" ] || {{ echo "another head job ($others) is already running for this run directory; exiting"; exit 0; }}
+echo "=== GenomeForge head job $SLURM_JOB_ID on $(hostname) at $(date)  attempt $GF_ATTEMPT/$GF_MAX"
+{shown}
+rc=$?
+echo "=== nextflow exited with status $rc at $(date)"
+if [ $rc -eq 0 ]; then
+    touch "$DONE"; echo "run complete"; exit 0
+fi
+if [ "$GF_ATTEMPT" -ge "$GF_MAX" ]; then
+    echo "giving up after $GF_ATTEMPT attempts; fix the cause and run the same genomeforge command again (it resumes)"; exit $rc
+fi
+echo "unfinished: resubmitting in $GF_DELAY s as attempt $((GF_ATTEMPT + 1))/$GF_MAX (resume)"
+sleep "$GF_DELAY"
+sbatch --export=ALL,GF_ATTEMPT=$((GF_ATTEMPT + 1)) "$HEAD"
+exit $rc
+""")
     out = subprocess.run(["sbatch", "--parsable", head], capture_output=True, text=True)
     if out.returncode != 0:
         _die(f"sbatch failed: {out.stderr.strip()}")
     job = out.stdout.strip()
-    print(f"submitted head job {job}\n  run dir : {rundir}\n  head    : {head}\n"
-          f"  monitor : tail -f {rundir}/nextflow.log    |    genomeforge status --rundir {rundir}")
+    print(f"submitted head job {job} ({jobname})\n  run dir   : {rundir}\n  head      : {head}\n"
+          f"  nodes     : {'all except ' + known.exclude_nodes if known.exclude_nodes else 'all in the partition'}\n"
+          f"  resilience: SLURM requeue + up to {known.max_restarts} self-resubmissions ({known.restart_delay}s apart), always -resume\n"
+          f"  monitor   : genomeforge status --rundir {rundir}    |    tail -f {rundir}/logs/head_{stamp}.out")
     return 0
 
 
@@ -405,6 +453,16 @@ def cmd_status(rest):
             print("  " + l)
         if len(mine) > 12:
             print(f"  ... {len(mine) - 12} more")
+    heads = sorted(glob.glob(os.path.join(rundir, "logs", "head_*.out")))
+    if heads:
+        last = heads[-1]; stamp = os.path.basename(last)[5:-4]
+        state = "COMPLETE" if os.path.isfile(os.path.join(rundir, "logs", f"head_{stamp}.complete")) else "in progress / stopped"
+        attempts = sum(1 for l in open(last, errors="replace") if l.startswith("=== GenomeForge head job"))
+        print(f"head chain: {os.path.basename(last)}  attempts={attempts}  state={state}")
+        with open(last, errors="replace") as fh:
+            tail = fh.readlines()[-6:]
+        for l in tail:
+            print("  " + l.rstrip())
     log = os.path.join(rundir, "nextflow.log")
     trace = None
     for root in (os.path.join(rundir, "results", "pipeline_info"),):
@@ -454,7 +512,7 @@ def cmd_qc_summary(rest):
     ap.add_argument("--max-contam", default="0.03"); ap.add_argument("--min-mapped", default="0.95")
     a = ap.parse_args(rest)
     r = os.path.abspath(a.results)
-    qc = os.path.join(r, "03_qc"); co = os.path.join(r, "07_cohort")
+    qc = os.path.join(r, "03_sample_qc"); co = os.path.join(r, "07_cohort_qc")
     os.makedirs(a.out_dir, exist_ok=True)
     args = ["--flagstat", os.path.join(qc, "samtools"), "--markdup", os.path.join(qc, "markdup"),
             "--mosdepth", os.path.join(qc, "mosdepth"), "--wgs-metrics", os.path.join(qc, "wgs_metrics"),

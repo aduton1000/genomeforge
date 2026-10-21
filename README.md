@@ -40,6 +40,8 @@ flowchart LR
 - **GATK best-practice germline calling.** bwa-mem2 → MarkDuplicates → BQSR → HaplotypeCaller `-ERC GVCF` scattered over the GATK WGS calling regions → GenomicsDBImport → GenotypeGVCFs → VQSR (SNP and INDEL), with an automatic fallback to GATK hard filters when the training sets are absent.
 - **Annotation that scales.** Per-chromosome scatter of dbSNP rsIDs, gnomAD allele frequencies, ClinVar and VEP; multi-allelics split and left-aligned first; a flat per-variant TSV next to the annotated VCF.
 - **Cohort QC that flags, never drops.** Depth, duplicate rate, contamination (verifyBamID2), sex concordance from coverage and from somalier, relatedness, Ti/Tv, plus plink2 PCA and a MultiQC report; a one-row-per-sample summary with explicit flags.
+- **Figures and reports.** Fifteen-plus QC figures (coverage, lane yield, base quality, insert size, GC, duplication, contamination, sex, relatedness, PCA, per-sample variant metrics, site statistics, VQSR tranches, allele-frequency spectrum, consequences, ClinVar, gnomAD comparison) assembled into a PDF report and a self-contained HTML dashboard.
+- **Self-resuming on the cluster.** SLURM requeue plus an automatic resubmit chain with `-resume`; a power or network trip costs at most the tasks that were running.
 - **Reusable intermediates.** Per-sample whole-genome gVCFs are published for future joint calls; final BAMs can be archived as CRAM.
 - **Reproducible.** Pinned containers, `versions.txt` and `params.json` on every run, resumable from any failure, scratch kept on disk (never a RAM-backed `/tmp`).
 - **Robust sample-sheet builder.** Recognises Novogene, bcl2fastq and generic FASTQ names, reads flowcell and lane from read headers when the name lacks them, and refuses unpaired, truncated or unreadable files.
@@ -123,6 +125,7 @@ work: `nextflow run main.nf -profile noguchi --input samplesheet.csv` and `pytho
 | `--run_vep` / `--run_pca` / `--run_contamination` | `true` | switch stages off |
 | `--archive_cram` | `false` | CRAM next to each final BAM |
 | `--qc_min_depth` / `--qc_max_dup` / `--qc_max_contam` / `--qc_min_mapped` | 20 / 0.25 / 0.03 / 0.95 | QC flag thresholds |
+| `--slurm_exclude` | null | nodes to keep free (also `genomeforge run --exclude-nodes`) |
 
 Per-process resources live in [`conf/base.config`](conf/base.config); memory and time scale with the retry attempt.
 
@@ -130,7 +133,9 @@ Per-process resources live in [`conf/base.config`](conf/base.config); memory and
 
 **Inputs.** A lane-level sample sheet, a chr-style no-alt GRCh38 with bwa-mem2 index, and the annotation bundle listed under *Requirements*. Required parameters: `--input` plus the site profile (or `--fasta`, `--dbsnp`, `--mills`, `--known_indels`, `--clinvar`, `--gnomad_dir`, `--somalier_sites`, `--vep_cache` and the container paths).
 
-**Outputs (`results/`).** Analysis-ready BAMs (`02_bams/`); per-sample gVCFs (`04_gvcf/`); the raw, VQSR-filtered, normalised and PASS cohort VCFs with tranche files (`05_joint/`); the annotated VCF and `variants.flat.tsv.gz` (`06_annotated/`); `cohort_qc_summary.tsv`, somalier relatedness and sex, plink2 PCA, bcftools stats and `cohort_multiqc.html` (`07_cohort/`); per-sample QC (`03_qc/`); and `pipeline_info/` with the resource check, scatter intervals, `versions.txt`, `params.json`, trace, timeline and DAG. Details in [`docs/outputs_overview.md`](docs/outputs_overview.md).
+**Outputs (`results/`).** Analysis-ready BAMs (`02_alignments/`); per-sample gVCFs (`04_gvcfs/`); the raw, VQSR-filtered, normalised and PASS cohort VCFs with tranche files (`05_joint_calling/`); the annotated VCF and `variants.flat.tsv.gz` (`06_annotation/`); somalier relatedness and sex, plink2 PCA and bcftools stats (`07_cohort_qc/`); and `08_reports/` with `cohort_qc_summary.tsv/.md`, `qc_report.pdf` (every figure, one per page, with the sample table), `qc_dashboard.html` (the same, self-contained), `figures/` (PNG + SVG) and `multiqc/`. Per-sample QC sits in `03_sample_qc/`, trimming reports in `01_trim_reports/`, and `pipeline_info/` holds the resource check, scatter intervals, `versions.txt`, `params.json`, trace, timeline and DAG. Details in [`docs/outputs_overview.md`](docs/outputs_overview.md).
+
+**Resilience.** `genomeforge run` submits the head job with SLURM requeue, so a node failure restarts it; on any unfinished exit the head job waits and resubmits itself (default 20 attempts, 10 minutes apart), always with `-resume`, and a marker file ends the chain once the run completes. Only one head job per run directory can be active. Tasks retry with scaled memory and time. No network access is needed during a run. `--exclude-nodes node4` keeps a node free for other users.
 
 ## Documentation
 

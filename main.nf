@@ -7,7 +7,7 @@ include { SAMTOOLS_STATS; MOSDEPTH; WGS_METRICS; VERIFYBAMID; SOMALIER_EXTRACT }
 include { HAPLOTYPECALLER; GATHER_GVCF }                                  from './modules/calling'
 include { GENOMICSDB_IMPORT; GENOTYPE_GVCFS; CONCAT_VCFS; VQSR_RECAL; APPLY_VQSR; HARD_FILTER; NORMALIZE } from './modules/joint'
 include { ANNOTATE_CHROM; VEP_CHROM; CONCAT_ANNOTATED; FLATTEN }          from './modules/annotate'
-include { SOMALIER_RELATE; BCFTOOLS_STATS; PLINK_PCA; SUMMARIZE_QC; MULTIQC; VERSIONS } from './modules/cohort'
+include { SOMALIER_RELATE; BCFTOOLS_STATS; PLINK_PCA; SUMMARIZE_QC; PLOT_QC; MULTIQC; VERSIONS } from './modules/cohort'
 
 def vcfOf(p) { return file(p, checkIfExists: true) }
 def tbiOf(p) { return file("${p}.tbi", checkIfExists: true) }
@@ -150,12 +150,19 @@ workflow {
     // ---- cohort QC ---------------------------------------------------------------
     SOMALIER_RELATE(SOMALIER_EXTRACT.out.collect())
     BCFTOOLS_STATS(NORMALIZE.out.pass, ref)
+    def pca_files = channel.value([])
     if (params.run_pca) {
         PLINK_PCA(NORMALIZE.out.pass)
+        pca_files = PLINK_PCA.out.eigenvec.mix(PLINK_PCA.out.eigenval).collect()
     }
+    def tranche_files = use_vqsr ? VQSR_RECAL.out.map { m, r, i, t -> t }.collect() : channel.value([])
     SUMMARIZE_QC(SAMTOOLS_STATS.out.flagstat.collect(), MARKDUP.out.metrics.collect(), MOSDEPTH.out.summary.collect(),
                  WGS_METRICS.out.collect(), selfsm.collect().ifEmpty([]),
                  SOMALIER_RELATE.out.samples, SOMALIER_RELATE.out.pairs, BCFTOOLS_STATS.out, samplesheet)
+    PLOT_QC(SUMMARIZE_QC.out.tsv, samplesheet,
+            MOSDEPTH.out.summary.mix(MOSDEPTH.out.dist).collect(), SAMTOOLS_STATS.out.stats.collect(),
+            ALIGN_LANE.out.fastp.collect().ifEmpty([]), SOMALIER_RELATE.out.pairs, pca_files, BCFTOOLS_STATS.out,
+            tranche_files, FLATTEN.out)
     def mqc = ALIGN_LANE.out.fastp.mix(SAMTOOLS_STATS.out.flagstat, SAMTOOLS_STATS.out.stats, SAMTOOLS_STATS.out.idxstats,
                                        MARKDUP.out.metrics, MOSDEPTH.out.summary, MOSDEPTH.out.dist, WGS_METRICS.out,
                                        selfsm, SOMALIER_RELATE.out.samples, SOMALIER_RELATE.out.pairs, BCFTOOLS_STATS.out)
