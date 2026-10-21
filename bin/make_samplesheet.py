@@ -20,7 +20,9 @@ Columns written: sample_id,lane_id,library,flowcell,lane,fastq_1,fastq_2,sex,phe
 Metadata CSV (optional) needs a sample_id column; sex and phenotype are copied if present.
 
 Fails loudly on unpaired FASTQs, duplicate lane IDs, unreadable files, or files smaller than
---min-bytes (a few hundred MB "lane" is an interrupted transfer) unless --allow-small.
+--min-bytes (default 50 MB) unless --allow-small. Vendors add small "top-up" lanes (100 MB
+to 1 GB) when a sample falls short of the contracted yield; those are legitimate and pass the
+default. An interrupted transfer shows as a lone small file whose mate has a different size.
 """
 import argparse, csv, gzip, os, re, sys
 from collections import defaultdict
@@ -103,7 +105,7 @@ def main():
     ap.add_argument("--exclude", default="", help="comma list of sample_ids to leave out")
     ap.add_argument("--sample-from", choices=["auto", "dir", "filename"], default="auto",
                     help="sample id from the parent directory (Novogene layout) or the file name; auto = directory when the name starts with it")
-    ap.add_argument("--min-bytes", type=int, default=1_000_000_000, help="smallest acceptable lane FASTQ (default 1 GB)")
+    ap.add_argument("--min-bytes", type=int, default=50_000_000, help="smallest acceptable lane FASTQ (default 50 MB; top-up lanes are often 100 MB-1 GB)")
     ap.add_argument("--allow-small", action="store_true", help="keep files below --min-bytes instead of failing")
     ap.add_argument("--drop-unpaired", action="store_true", help="skip unpaired files instead of failing")
     a = ap.parse_args()
@@ -131,6 +133,9 @@ def main():
             msg = f"unpaired: {sample} {fc} L{lane} has only R{list(d)[0]} ({list(d.values())[0]['path']})"
             if a.drop_unpaired: sys.stderr.write(f"[samplesheet] WARNING {msg} (dropped)\n"); continue
             problems.append(msg); continue
+        s1, s2 = d["1"]["size"], d["2"]["size"]
+        if s1 and s2 and not (0.7 <= s1 / s2 <= 1.43):
+            problems.append(f"R1/R2 sizes disagree ({s1/1e9:.2f} vs {s2/1e9:.2f} GB; truncated transfer?): {sample} {fc} L{lane}")
         for r in ("1", "2"):
             f = d[r]
             if not os.access(f["path"], os.R_OK): problems.append(f"unreadable: {f['path']}")
