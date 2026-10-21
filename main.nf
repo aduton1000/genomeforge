@@ -9,6 +9,9 @@ include { GENOMICSDB_IMPORT; GENOTYPE_GVCFS; CONCAT_VCFS; VQSR_RECAL; APPLY_VQSR
 include { ANNOTATE_CHROM; VEP_CHROM; CONCAT_ANNOTATED; FLATTEN }          from './modules/annotate'
 include { SOMALIER_RELATE; BCFTOOLS_STATS; PLINK_PCA; SUMMARIZE_QC; PLOT_QC; MULTIQC; VERSIONS } from './modules/cohort'
 
+// Boolean params arrive as strings from the command line ("false" is truthy in Groovy): always go through flag()
+def flag(v) { return v != null && v.toString().toLowerCase() in ['true', '1', 'yes'] }
+
 def vcfOf(p) { return file(p, checkIfExists: true) }
 def tbiOf(p) { return file("${p}.tbi", checkIfExists: true) }
 
@@ -45,10 +48,10 @@ workflow {
     if (missing) {
         error("Missing site parameters: ${missing.join(', ')}. Use -profile noguchi, or -profile slurm with a -params-file (see params.example.yaml).")
     }
-    if (params.run_vep && !params.vep_cache) {
+    if (flag(params.run_vep) && !params.vep_cache) {
         error("--run_vep needs --vep_cache (or set run_vep false)")
     }
-    if (params.run_pca && !params.burden_sif) {
+    if (flag(params.run_pca) && !params.burden_sif) {
         error("--run_pca needs --burden_sif (plink2) or set run_pca false")
     }
 
@@ -115,7 +118,7 @@ workflow {
     WGS_METRICS(bams, ref)
     SOMALIER_EXTRACT(bams, ref, somalier_sites)
     def selfsm = channel.empty()
-    if (params.run_contamination) {
+    if (flag(params.run_contamination)) {
         VERIFYBAMID(bams, ref)
         selfsm = VERIFYBAMID.out.selfsm
     }
@@ -144,7 +147,7 @@ workflow {
     // ---- annotation (scattered by chromosome) ------------------------------------
     ANNOTATE_CHROM(NORMALIZE.out.pass.combine(channel.fromList(chroms)), dbsnp, PREP_CLINVAR.out, file(params.gnomad_dir, checkIfExists: true))
     def annotated = ANNOTATE_CHROM.out
-    if (params.run_vep) {
+    if (flag(params.run_vep)) {
         VEP_CHROM(ANNOTATE_CHROM.out, ref, file(params.vep_cache, checkIfExists: true))
         annotated = VEP_CHROM.out
     }
@@ -155,7 +158,7 @@ workflow {
     SOMALIER_RELATE(SOMALIER_EXTRACT.out.collect())
     BCFTOOLS_STATS(NORMALIZE.out.pass, ref)
     def pca_files = channel.value([])
-    if (params.run_pca) {
+    if (flag(params.run_pca)) {
         PLINK_PCA(NORMALIZE.out.pass)
         pca_files = PLINK_PCA.out.eigenvec.mix(PLINK_PCA.out.eigenval).collect()
     }

@@ -113,8 +113,9 @@ process FLATTEN {
 
     script:
     def gcols = params.gnomad_fields.tokenize(',').collect { "%gnomAD_${it}" }.join('\\t')
-    def vepcols = params.run_vep ? '\\t%SYMBOL\\t%Gene\\t%Consequence\\t%IMPACT\\t%Feature\\t%HGVSc\\t%HGVSp\\t%MANE_SELECT\\t%CANONICAL\\t%SIFT\\t%PolyPhen\\t%MAX_AF' : ''
-    def plugin  = params.run_vep ? '+split-vep -s worst' : 'query'
+    def run_vep = params.run_vep.toString().toLowerCase() in ['true', '1', 'yes']
+    def vepcols = run_vep ? '\\t%SYMBOL\\t%Gene\\t%Consequence\\t%IMPACT\\t%Feature\\t%HGVSc\\t%HGVSp\\t%MANE_SELECT\\t%CANONICAL\\t%SIFT\\t%PolyPhen\\t%MAX_AF' : ''
+    def plugin  = run_vep ? '+split-vep -s worst' : 'query'
     """
     bcftools ${plugin} -H \\
         -f '%CHROM\\t%POS\\t%ID\\t%REF\\t%ALT\\t%QUAL\\t%FILTER\\t%AC\\t%AN\\t%AF${vepcols}\\t${gcols}\\t%CLNSIG\\t%CLNDN\\t%CLNREVSTAT[\\t%GT]\\n' \\
