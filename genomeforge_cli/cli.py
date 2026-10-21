@@ -154,6 +154,9 @@ examples:
   # override any pipeline parameter inline (they pass straight through to Nextflow)
   genomeforge run --profile noguchi --input samplesheet.csv --filtering hard --archive_cram true --trim false
 
+  # cluster with frequent power cuts: whole-node alignments and (default) scattered BQSR keep every task short
+  genomeforge run --profile noguchi --input samplesheet.csv --whole_node_align true
+
   # keep one node free for other users; the head job and every task stay off it
   genomeforge run --profile noguchi --input samplesheet.csv --exclude-nodes node4
 
@@ -163,6 +166,10 @@ examples:
 pipeline parameters (pass-through; defaults in nextflow.config, site paths from the profile/params file):
   --outdir DIR              results directory inside the run dir (default results)
   --scatter_count N         HaplotypeCaller / joint-genotyping shards (48)
+  --bqsr_scatter N          BaseRecalibrator / ApplyBQSR shards over whole-contig groups (24)
+  --whole_node_align true   one 64-thread alignment per node instead of two 32-thread ones: same throughput,
+                            half the wall-clock per task, half the work lost when a node loses power (false)
+  --align_cpus / --align_memory / --node_cpus / --node_memory     the two alignment sizes (32/64.GB, 64/120.GB)
   --calling_regions FILE    GATK wgs_calling_regions interval_list or BED (site profile)
   --filtering vqsr|hard     VQSR (default) or GATK hard filters; auto-fallback if training sets are missing
   --snp_tranche F / --indel_tranche F     VQSR truth-sensitivity levels (99.7 / 99.7)

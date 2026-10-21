@@ -53,6 +53,7 @@ process PREP_INTERVALS {
     output:
     path("calling_regions.bed"),          emit: bed
     path("scattered/*.interval_list"),    emit: intervals
+    path("bqsr_groups/*.intervals"),      emit: bqsr_groups
 
     script:
     def have_regions = regions.name != 'NO_FILE'
@@ -71,13 +72,37 @@ process PREP_INTERVALS {
     gatk --java-options "-Xmx${mem}g -Djava.io.tmpdir=./tmp" SplitIntervals \\
         -R ${fasta} -L calling_regions.bed --scatter-count ${params.scatter_count} \\
         --subdivision-mode ${mode} -O scattered
+    # BQSR shards: contiguous groups of WHOLE contigs covering the entire reference (in .dict
+    # order, balanced by length); the last group also carries the unmapped reads, so the
+    # gathered BAM is complete. Whole contigs => no read is split across shards.
+    python3 - <<'EOF'
+import os
+ctgs = []
+for line in open("${dict}"):
+    if line.startswith("@SQ"):
+        f = dict(x.split(":", 1) for x in line.rstrip("\n").split("\t")[1:]); ctgs.append((f["SN"], int(f["LN"])))
+n = max(1, int("${params.bqsr_scatter}")); target = sum(l for _, l in ctgs) / n
+groups, cur, size = [], [], 0
+for name, ln in ctgs:
+    if cur and size + ln > target and len(groups) < n - 1:
+        groups.append(cur); cur, size = [], 0
+    cur.append(name); size += ln
+if cur: groups.append(cur)
+os.makedirs("bqsr_groups", exist_ok=True)
+for i, g in enumerate(groups):
+    with open("bqsr_groups/%04d%s.intervals" % (i, ".last" if i == len(groups) - 1 else ""), "w") as fh:
+        fh.write("\n".join(g) + "\n")
+print("bqsr groups:", len(groups))
+EOF
     """
 
     stub:
     """
     touch calling_regions.bed
-    mkdir -p scattered
+    mkdir -p scattered bqsr_groups
     for i in \$(seq 0 \$((${params.scatter_count} - 1))); do touch scattered/\$(printf '%04d' \$i)-scattered.interval_list; done
+    for i in \$(seq 0 \$((${params.bqsr_scatter} - 2))); do touch bqsr_groups/\$(printf '%04d' \$i).intervals; done
+    touch bqsr_groups/\$(printf '%04d' \$((${params.bqsr_scatter} - 1))).last.intervals
     """
 }
 
