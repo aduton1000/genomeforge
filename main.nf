@@ -2,7 +2,7 @@
 // Runs on the CallForge container images and reference bundle. See README.md.
 
 include { CHECK_RESOURCES; PREP_INTERVALS; PREP_CLINVAR }                 from './modules/prep'
-include { ALIGN_LANE; MARKDUP; BASERECAL; APPLYBQSR }                     from './modules/align'
+include { ALIGN_LANE; MARKDUP; BASERECAL_SHARD; GATHER_BQSR; APPLYBQSR_SHARD; GATHER_BAM } from './modules/align'
 include { SAMTOOLS_STATS; MOSDEPTH; WGS_METRICS; VERIFYBAMID; SOMALIER_EXTRACT } from './modules/qc'
 include { HAPLOTYPECALLER; GATHER_GVCF }                                  from './modules/calling'
 include { GENOMICSDB_IMPORT; GENOTYPE_GVCFS; CONCAT_VCFS; VQSR_RECAL; APPLY_VQSR; HARD_FILTER; NORMALIZE } from './modules/joint'
@@ -101,9 +101,13 @@ workflow {
     ALIGN_LANE(lanes, ref, bwa_index)
     def per_sample = ALIGN_LANE.out.bam.map { meta, bam, bai -> tuple(meta.id, bam, bai) }.groupTuple()
     MARKDUP(per_sample)
-    BASERECAL(MARKDUP.out.bam, ref, known_vcf, known_tbi)
-    APPLYBQSR(MARKDUP.out.bam.join(BASERECAL.out), ref)
-    def bams = APPLYBQSR.out.bam
+    // BQSR scattered over whole-contig groups (short tasks: a power cut costs minutes, not hours)
+    def bqsr_groups = PREP_INTERVALS.out.bqsr_groups.flatten().map { f -> tuple(f.name.replace('.last.intervals', '').replace('.intervals', ''), f) }
+    BASERECAL_SHARD(MARKDUP.out.bam.combine(bqsr_groups), ref, known_vcf, known_tbi)
+    GATHER_BQSR(BASERECAL_SHARD.out.map { s, g, t -> tuple(s, t) }.groupTuple())
+    APPLYBQSR_SHARD(MARKDUP.out.bam.join(GATHER_BQSR.out).combine(bqsr_groups), ref)
+    GATHER_BAM(APPLYBQSR_SHARD.out.map { s, g, b -> tuple(s, b) }.groupTuple(), ref)
+    def bams = GATHER_BAM.out.bam
 
     // ---- per-sample QC -----------------------------------------------------------
     SAMTOOLS_STATS(bams)

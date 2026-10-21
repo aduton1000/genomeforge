@@ -119,12 +119,15 @@ failure; the queue itself survives a controller restart), refuses to start while
 job for the same run directory is running, and on any exit without a completed run it sleeps
 `--restart-delay` seconds (600) and resubmits itself, up to `--max-restarts` times (20), always
 with `-resume`. A `logs/head_<stamp>.complete` marker ends the chain. Failed tasks retry with
-scaled memory and time. Nothing in a run needs the internet, so a network outage only matters
+scaled memory and time. On a cluster that loses power often, add `--whole_node_align true`
+so that no task runs longer than about two hours. Nothing in a run needs the internet, so a network outage only matters
 if the data or reference filesystem goes with it, in which case the same mechanism resumes
 once it is back.
 
 **Sizing.** Per 30× sample: alignment ≈ 60–100 CPU-h, HaplotypeCaller ≈ 30–60 CPU-h,
-peak RAM 64 GB (bwa-mem2 at 32 threads), 72 GB for an index build. Storage: final BAMs
+peak RAM 64 GB (bwa-mem2 at 32 threads) or 120 GB with `--whole_node_align true`, 72 GB for an
+index build. Task durations: lane alignment 1–4 h (half with whole-node), MarkDuplicates 2–3 h,
+BQSR shards 10–20 min, HaplotypeCaller shards ≈ 30–60 min, joint-genotyping shards ≈ 1 h. Storage: final BAMs
 ≈ 1.1× the compressed FASTQ, `work/` peak ≈ 4×, so plan 5× the FASTQ size. A 64-sample 30×
 cohort on four 72-thread nodes takes 5–7 days of wall-clock.
 

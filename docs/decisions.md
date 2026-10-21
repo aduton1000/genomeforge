@@ -20,9 +20,16 @@ to be checked after the first full cohort run.
 - **fastp streamed into bwa-mem2.** Trimming is on by default (`--trim`) but no trimmed
   FASTQs are written; fastp's interleaved stdout feeds `bwa-mem2 mem -p`. `-K 100000000`
   and `-Y` give deterministic output and keep supplementary alignments soft-clipped.
-- **BQSR unscattered.** BaseRecalibrator/ApplyBQSR on a 30× genome take a few hours each
-  and parallelise across samples; scattering would add a gather step for little wall-clock
-  gain on a four-node cluster.
+- **BQSR scattered over whole-contig groups.** BaseRecalibrator and ApplyBQSR each run per
+  contiguous group of whole contigs (24 groups by default, balanced by length over the entire
+  reference in `.dict` order), then `GatherBQSRReports` and `GatherBamFiles` reassemble the
+  table and the BAM. Whole contigs mean no read is split between shards; the last group adds
+  `-L unmapped` so unmapped reads survive into the final BAM. Originally unscattered (simpler,
+  a few hours per sample), changed after the first cohort cluster showed daily power cuts:
+  a 10–20 minute shard is lost to an outage, a 4-hour task is lost repeatedly.
+- **Alignment task size is a parameter.** Default two 32-thread tasks per 72-thread node;
+  `--whole_node_align` gives one 64-thread task per node (same throughput, half the wall-clock
+  per task) for clusters where the work at risk per outage matters more than fine packing.
 - **HaplotypeCaller scattered over the GATK WGS calling regions** (48 shards by default,
   `BALANCING_WITHOUT_INTERVAL_SUBDIVISION_WITH_OVERFLOW`); whole-chromosome fallback uses
   `INTERVAL_SUBDIVISION` so shards stay balanced. GenomicsDBImport and GenotypeGVCFs run on
@@ -63,7 +70,9 @@ to be checked after the first full cohort run.
 - **gnomAD tag rename** (`bcftools annotate -c INFO/gnomAD_AF:=AF`) and **verifyBamID2
   resource auto-detection** are validated on the first real run (see the first-run
   checklist in `docs/hpc_deployment.md`).
-- **MarkDuplicates memory** on 60×+ samples: raise the `markdup` label if retries occur.
+- **MarkDuplicates memory** on 60×+ samples: raise the `markdup` label if retries occur. It is
+  the longest remaining unscattered task (2–3 h on a 30× sample, single-threaded); switching
+  to `MarkDuplicatesSpark` or `samtools markdup` would bring it under an hour if outages demand it.
 - **Sex inference thresholds** (Y/autosome > 0.15 → M, < 0.05 → F) are conservative;
   somalier's call is reported alongside and disagreements are flagged.
 - **CollectWgsMetrics** runs with `--USE_FAST_ALGORITHM`; compare its mean coverage with

@@ -37,11 +37,11 @@ flowchart LR
 ## Features
 
 - **Any lane layout.** One sample sheet row per lane-pair; samples may span lanes, flowcells, libraries and deliveries. Each lane is aligned with its own read group (`ID`, `SM`, `LB`, `PU`, `PL`, optional `CN`) and merged inside MarkDuplicates.
-- **GATK best-practice germline calling.** bwa-mem2 → MarkDuplicates → BQSR → HaplotypeCaller `-ERC GVCF` scattered over the GATK WGS calling regions → GenomicsDBImport → GenotypeGVCFs → VQSR (SNP and INDEL), with an automatic fallback to GATK hard filters when the training sets are absent.
+- **GATK best-practice germline calling.** bwa-mem2 → MarkDuplicates → BQSR scattered over whole-contig groups → HaplotypeCaller `-ERC GVCF` scattered over the GATK WGS calling regions → GenomicsDBImport → GenotypeGVCFs → VQSR (SNP and INDEL), with an automatic fallback to GATK hard filters when the training sets are absent.
 - **Annotation that scales.** Per-chromosome scatter of dbSNP rsIDs, gnomAD allele frequencies, ClinVar and VEP; multi-allelics split and left-aligned first; a flat per-variant TSV next to the annotated VCF.
 - **Cohort QC that flags, never drops.** Depth, duplicate rate, contamination (verifyBamID2), sex concordance from coverage and from somalier, relatedness, Ti/Tv, plus plink2 PCA and a MultiQC report; a one-row-per-sample summary with explicit flags.
 - **Figures and reports.** Fifteen-plus QC figures (coverage, lane yield, base quality, insert size, GC, duplication, contamination, sex, relatedness, PCA, per-sample variant metrics, site statistics, VQSR tranches, allele-frequency spectrum, consequences, ClinVar, gnomAD comparison) assembled into a PDF report and a self-contained HTML dashboard.
-- **Self-resuming on the cluster.** SLURM requeue plus an automatic resubmit chain with `-resume`; a power or network trip costs at most the tasks that were running.
+- **Built for unreliable power.** SLURM requeue plus an automatic resubmit chain with `-resume`, and every task kept short: BQSR runs in 24 contig-group shards, calling in 48 shards, and `--whole_node_align true` halves alignment wall-clock, so an outage costs minutes of work, not hours.
 - **Reusable intermediates.** Per-sample whole-genome gVCFs are published for future joint calls; final BAMs can be archived as CRAM.
 - **Reproducible.** Pinned containers, `versions.txt` and `params.json` on every run, resumable from any failure, scratch kept on disk (never a RAM-backed `/tmp`).
 - **Robust sample-sheet builder.** Recognises Novogene, bcl2fastq and generic FASTQ names, reads flowcell and lane from read headers when the name lacks them, and refuses unpaired, truncated or unreadable files.
@@ -116,6 +116,8 @@ work: `nextflow run main.nf -profile noguchi --input samplesheet.csv` and `pytho
 | option | default | purpose |
 |:-------|:--------|:--------|
 | `--scatter_count` | 48 | HaplotypeCaller / joint-genotyping shards |
+| `--bqsr_scatter` | 24 | BaseRecalibrator / ApplyBQSR shards (whole-contig groups) |
+| `--whole_node_align` | `false` | one 64-thread alignment per node instead of two 32-thread ones; same throughput, half the time at risk per task |
 | `--calling_regions` | site profile | GATK `wgs_calling_regions.hg38.interval_list`; falls back to whole primary chromosomes |
 | `--filtering` | `vqsr` | `hard` for GATK hard filters; automatic fallback if training sets are missing |
 | `--snp_tranche` / `--indel_tranche` | 99.7 / 99.7 | VQSR truth-sensitivity levels |
