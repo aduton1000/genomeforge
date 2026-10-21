@@ -11,11 +11,12 @@
 #      echo 'source /opt/genomeforge/genomeforge-env.sh' >> ~/.bashrc
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Install/repo root (the directory containing main.nf, bin/, share/).
-export GENOMEFORGE_HOME="/opt/genomeforge"                       # [EDIT]
+# The checkout (the directory containing main.nf, bin/, share/).
+export GENOMEFORGE_HOME="/opt/genomeforge/repo"                  # [EDIT]
 
-# The `genomeforge` command (no pip needed).
-export PATH="$GENOMEFORGE_HOME/share/bin:$PATH"
+# The `genomeforge` command: the cli-env wrapper (docs/hpc_deployment.md §0) or, without a
+# venv, the shim in the checkout's share/bin.
+export PATH="/opt/genomeforge/bin:$PATH"                         # [EDIT] or "$GENOMEFORGE_HOME/share/bin:$PATH"
 
 # Site profile: a bundled one (noguchi) or the generic `slurm` profile.
 export GENOMEFORGE_PROFILE="slurm"                               # [EDIT] e.g. noguchi
