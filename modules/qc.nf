@@ -121,7 +121,7 @@ process SOMALIER_EXTRACT {
     input:
     tuple val(sample), path(bam), path(bai)
     tuple path(fasta), path(fai), path(dict)
-    tuple path(sites), path(sites_tbi)
+    path(sites)
 
     output:
     path("*.somalier")
