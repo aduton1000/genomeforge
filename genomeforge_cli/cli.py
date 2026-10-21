@@ -327,7 +327,8 @@ def cmd_check(rest):
     else:
         row("MISSING", "fasta", fa or "(unset)"); style = None
     cr = p.get("calling_regions")
-    row("OK" if cr and os.path.isfile(cr) else "WARN", "calling_regions", cr or "(unset: whole chromosomes will be used)")
+    row("OK" if cr and os.path.isfile(cr) else "WARN", "calling_regions",
+        (cr + "  (not found: whole chromosomes will be used; run `genomeforge resources fetch`)") if cr else "(unset: whole chromosomes will be used)")
 
     print("\nannotation / known sites:")
     for k in ("dbsnp", "mills", "known_indels", "hapmap", "omni", "g1000", "clinvar", "somalier_sites"):
@@ -337,8 +338,9 @@ def cmd_check(rest):
                 (v or "(unset)") + ("  -> VQSR falls back to hard filters; run `genomeforge resources fetch`" if k in ("hapmap", "omni", "g1000") else ""))
             continue
         idx = os.path.isfile(v + ".tbi") or os.path.isfile(v + ".csi")
-        detail = v + ("" if idx else "  (index .tbi MISSING)")
-        st = "OK" if idx else "MISSING"
+        needs_idx = k != "somalier_sites"                      # somalier reads its sites file sequentially
+        detail = v + ("" if idx or not needs_idx else "  (index .tbi MISSING)")
+        st = "OK" if idx or not needs_idx else "MISSING"
         if style and k != "clinvar" and _have("tabix") and idx:
             try:
                 first = subprocess.run(["tabix", "-l", v], capture_output=True, text=True, timeout=60).stdout.split("\n")[0]

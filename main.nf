@@ -62,7 +62,7 @@ workflow {
     def dbsnp     = channel.value([vcfOf(params.dbsnp), tbiOf(params.dbsnp)])
     def known_vcf = channel.value([params.dbsnp, params.mills, params.known_indels].collect { vcfOf(it) })
     def known_tbi = channel.value([params.dbsnp, params.mills, params.known_indels].collect { tbiOf(it) })
-    def somalier_sites = channel.value([vcfOf(params.somalier_sites), tbiOf(params.somalier_sites)])
+    def somalier_sites = channel.value(vcfOf(params.somalier_sites))      // somalier reads it sequentially; no index needed
     def chroms    = params.chromosomes.tokenize(',')
 
     def vqsr_paths = [params.hapmap, params.omni, params.g1000, params.mills, params.dbsnp]
