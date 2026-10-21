@@ -327,8 +327,10 @@ def cmd_check(rest):
     else:
         row("MISSING", "fasta", fa or "(unset)"); style = None
     cr = p.get("calling_regions")
-    row("OK" if cr and os.path.isfile(cr) else "WARN", "calling_regions",
-        (cr + "  (not found: whole chromosomes will be used; run `genomeforge resources fetch`)") if cr else "(unset: whole chromosomes will be used)")
+    if cr and os.path.isfile(cr):
+        row("OK", "calling_regions", cr)
+    else:
+        row("WARN", "calling_regions", (cr + "  (not found: whole chromosomes will be used; run `genomeforge resources fetch`)") if cr else "(unset: whole chromosomes will be used)")
 
     print("\nannotation / known sites:")
     for k in ("dbsnp", "mills", "known_indels", "hapmap", "omni", "g1000", "clinvar", "somalier_sites"):
