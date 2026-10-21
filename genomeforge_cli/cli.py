@@ -440,6 +440,7 @@ def cmd_status(rest):
         epilog=f"examples:\n  {PROG} status\n  {PROG} status --rundir /hpc/data/<lab>/<project>/genomeforge_run --lines 40\n")
     ap.add_argument("--rundir", default=d["rundir"])
     ap.add_argument("--lines", type=int, default=15, help="log lines to show (default 15)")
+    ap.add_argument("--verbose", action="store_true", help="show the Nextflow debug log instead of the head-job console log")
     a = ap.parse_args(rest)
     rundir = os.path.abspath(a.rundir)
     if not os.path.isdir(rundir):
@@ -459,10 +460,6 @@ def cmd_status(rest):
         state = "COMPLETE" if os.path.isfile(os.path.join(rundir, "logs", f"head_{stamp}.complete")) else "in progress / stopped"
         attempts = sum(1 for l in open(last, errors="replace") if l.startswith("=== GenomeForge head job"))
         print(f"head chain: {os.path.basename(last)}  attempts={attempts}  state={state}")
-        with open(last, errors="replace") as fh:
-            tail = fh.readlines()[-6:]
-        for l in tail:
-            print("  " + l.rstrip())
     log = os.path.join(rundir, "nextflow.log")
     trace = None
     for root in (os.path.join(rundir, "results", "pipeline_info"),):
@@ -483,14 +480,15 @@ def cmd_status(rest):
         print("tasks per process (from trace.txt):")
         for proc in sorted(counts):
             print(f"  {proc:<22} " + "  ".join(f"{s}={n}" for s, n in sorted(counts[proc].items())))
-    if os.path.isfile(log):
-        with open(log, errors="replace") as fh:
-            lines = fh.readlines()
-        print(f"last {a.lines} lines of nextflow.log:")
+    console = heads[-1] if heads else (log if os.path.isfile(log) else None)
+    if console:
+        with open(console, errors="replace") as fh:
+            lines = [l for l in fh.readlines() if not a.verbose and "DEBUG" not in l or a.verbose]
+        print(f"last {a.lines} lines of {os.path.basename(console)}:")
         for l in lines[-a.lines:]:
-            print("  " + l.rstrip())
+            print("  " + l.rstrip()[:220])
     else:
-        print("no nextflow.log yet")
+        print("no log yet")
     res = os.path.join(rundir, "results")
     if os.path.isdir(res):
         print("results:", ", ".join(sorted(os.listdir(res))))
