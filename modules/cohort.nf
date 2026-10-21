@@ -2,7 +2,7 @@
 
 process SOMALIER_RELATE {
     label 'small'
-    publishDir "${params.outdir}/07_cohort/somalier", mode: params.publish_mode
+    publishDir "${params.outdir}/07_cohort_qc/somalier", mode: params.publish_mode
 
     input:
     path(somaliers)
@@ -25,7 +25,7 @@ process SOMALIER_RELATE {
 
 process BCFTOOLS_STATS {
     label 'medium'
-    publishDir "${params.outdir}/07_cohort", mode: params.publish_mode
+    publishDir "${params.outdir}/07_cohort_qc", mode: params.publish_mode
 
     input:
     tuple path(vcf), path(tbi)
@@ -47,7 +47,7 @@ process BCFTOOLS_STATS {
 
 process PLINK_PCA {
     label 'medium'
-    publishDir "${params.outdir}/07_cohort/pca", mode: params.publish_mode
+    publishDir "${params.outdir}/07_cohort_qc/pca", mode: params.publish_mode
 
     input:
     tuple path(vcf), path(tbi)
@@ -77,7 +77,7 @@ process PLINK_PCA {
 
 process SUMMARIZE_QC {
     label 'small'
-    publishDir "${params.outdir}/07_cohort", mode: params.publish_mode
+    publishDir "${params.outdir}/08_reports", mode: params.publish_mode
 
     input:
     path(flagstats,  stageAs: 'flagstat/*')
@@ -111,7 +111,7 @@ process SUMMARIZE_QC {
 
 process MULTIQC {
     label 'medium'
-    publishDir "${params.outdir}/07_cohort", mode: params.publish_mode
+    publishDir "${params.outdir}/08_reports/multiqc", mode: params.publish_mode
 
     input:
     path(files, stageAs: 'inputs/*')
@@ -128,6 +128,44 @@ process MULTIQC {
     stub:
     """
     touch cohort_multiqc.html; mkdir -p cohort_multiqc_data
+    """
+}
+
+process PLOT_QC {
+    label 'medium'
+    publishDir "${params.outdir}/08_reports", mode: params.publish_mode
+
+    input:
+    path(qc_summary)
+    path(samplesheet)
+    path(mosdepth,  stageAs: 'mosdepth/*')
+    path(samtools,  stageAs: 'samtools/*')
+    path(fastp,     stageAs: 'fastp/*')
+    path(somalier_pairs)
+    path(pca,       stageAs: 'pca/*')
+    path(bcfstats)
+    path(tranches,  stageAs: 'vqsr/*')
+    path(flat)
+
+    output:
+    path("figures"),           emit: figures
+    path("qc_dashboard.html"), emit: dashboard
+    path("qc_report.pdf"),     emit: pdf
+
+    script:
+    """
+    mkdir -p mosdepth samtools fastp pca vqsr
+    plot_qc.py --qc-summary ${qc_summary} --samplesheet ${samplesheet} \
+        --mosdepth mosdepth --samtools samtools --fastp fastp --somalier-pairs ${somalier_pairs} \
+        --pca-eigenvec pca/cohort_pca.eigenvec --pca-eigenval pca/cohort_pca.eigenval \
+        --bcftools-stats ${bcfstats} --tranches vqsr --flat ${flat} \
+        --min-depth ${params.qc_min_depth} --max-dup ${params.qc_max_dup} --max-contam ${params.qc_max_contam} --min-mapped ${params.qc_min_mapped} \
+        --out-dir figures --dashboard qc_dashboard.html --pdf qc_report.pdf --label "run ${workflow.runName} · ${workflow.start}"
+    """
+
+    stub:
+    """
+    mkdir -p figures; touch figures/coverage_per_sample.png qc_dashboard.html qc_report.pdf
     """
 }
 

@@ -104,11 +104,24 @@ genomeforge run --input samplesheet.csv               # the real run
 ```
 
 `genomeforge run` writes an sbatch head script under `<rundir>/logs/`, exports `NXF_WORK`,
-`TMPDIR` and `NXF_TEMP` into the run directory, raises the open-file limit for GenomicsDB,
-logs to `<rundir>/nextflow.log`, and passes `-resume`, so repeating the command after a
-failure continues from the last completed task. `--foreground` runs Nextflow in the current
-shell instead (for `screen`/`tmux` sessions), `--print-cmd` shows the command without
+`TMPDIR`, `NXF_TEMP` and `NXF_OFFLINE` into the run directory, raises the open-file limit for
+GenomicsDB, logs to `<rundir>/nextflow.log`, and passes `-resume`, so repeating the command
+after a failure continues from the last completed task. `--foreground` runs Nextflow in the
+current shell instead (for `screen`/`tmux` sessions), `--print-cmd` shows the command without
 submitting.
+
+**Keeping nodes free.** `--exclude-nodes node4` (or `GENOMEFORGE_EXCLUDE_NODES`) adds
+`--exclude` to the head job and to every task through `--slurm_exclude`, so a cohort run uses
+the remaining nodes only.
+
+**Self-resumption.** The head job is submitted with `--requeue` (SLURM restarts it after a node
+failure; the queue itself survives a controller restart), refuses to start while another head
+job for the same run directory is running, and on any exit without a completed run it sleeps
+`--restart-delay` seconds (600) and resubmits itself, up to `--max-restarts` times (20), always
+with `-resume`. A `logs/head_<stamp>.complete` marker ends the chain. Failed tasks retry with
+scaled memory and time. Nothing in a run needs the internet, so a network outage only matters
+if the data or reference filesystem goes with it, in which case the same mechanism resumes
+once it is back.
 
 **Sizing.** Per 30× sample: alignment ≈ 60–100 CPU-h, HaplotypeCaller ≈ 30–60 CPU-h,
 peak RAM 64 GB (bwa-mem2 at 32 threads), 72 GB for an index build. Storage: final BAMs

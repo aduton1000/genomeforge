@@ -60,7 +60,7 @@ process GENOTYPE_GVCFS {
 
 process CONCAT_VCFS {
     label 'medium'
-    publishDir "${params.outdir}/05_joint", mode: params.publish_mode
+    publishDir "${params.outdir}/05_joint_calling", mode: params.publish_mode
 
     input:
     path(vcfs)
@@ -85,7 +85,7 @@ process CONCAT_VCFS {
 process VQSR_RECAL {
     tag "${mode}"
     label 'vqsr'
-    publishDir "${params.outdir}/05_joint/vqsr", mode: params.publish_mode
+    publishDir "${params.outdir}/05_joint_calling/vqsr", mode: params.publish_mode
 
     input:
     tuple path(vcf), path(tbi)
@@ -129,7 +129,7 @@ process VQSR_RECAL {
 
 process APPLY_VQSR {
     label 'vqsr'
-    publishDir "${params.outdir}/05_joint", mode: params.publish_mode
+    publishDir "${params.outdir}/05_joint_calling", mode: params.publish_mode
 
     input:
     tuple path(vcf), path(tbi)
@@ -161,7 +161,7 @@ process APPLY_VQSR {
 
 process HARD_FILTER {
     label 'vqsr'
-    publishDir "${params.outdir}/05_joint", mode: params.publish_mode
+    publishDir "${params.outdir}/05_joint_calling", mode: params.publish_mode
 
     input:
     tuple path(vcf), path(tbi)
@@ -191,7 +191,7 @@ process HARD_FILTER {
 
 process NORMALIZE {
     label 'medium'
-    publishDir "${params.outdir}/05_joint", mode: params.publish_mode
+    publishDir "${params.outdir}/05_joint_calling", mode: params.publish_mode
 
     input:
     tuple path(vcf), path(tbi)

@@ -29,7 +29,7 @@ process HAPLOTYPECALLER {
 process GATHER_GVCF {
     tag "${sample}"
     label 'small'
-    publishDir "${params.outdir}/04_gvcf", mode: params.publish_mode
+    publishDir "${params.outdir}/04_gvcfs", mode: params.publish_mode
 
     input:
     tuple val(sample), path(gvcfs), path(tbis)

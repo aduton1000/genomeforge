@@ -78,7 +78,7 @@ process VEP_CHROM {
 
 process CONCAT_ANNOTATED {
     label 'medium'
-    publishDir "${params.outdir}/06_annotated", mode: params.publish_mode
+    publishDir "${params.outdir}/06_annotation", mode: params.publish_mode
 
     input:
     path(vcfs)
@@ -103,7 +103,7 @@ process CONCAT_ANNOTATED {
 
 process FLATTEN {
     label 'medium'
-    publishDir "${params.outdir}/06_annotated", mode: params.publish_mode
+    publishDir "${params.outdir}/06_annotation", mode: params.publish_mode
 
     input:
     tuple path(vcf), path(tbi)
