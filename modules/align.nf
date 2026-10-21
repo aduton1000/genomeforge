@@ -21,9 +21,10 @@ process ALIGN_LANE {
     def cn          = params.sequencing_center ? "\\tCN:${params.sequencing_center}" : ''
     def rg          = "@RG\\tID:${meta.lane}\\tSM:${meta.id}\\tLB:${meta.library}\\tPU:${meta.flowcell}.${meta.lane_no}\\tPL:ILLUMINA${cn}"
     def sort_cpus   = Math.max(4, Math.min(8, (task.cpus / 8) as int))      // 4 at 32 cpus, 8 at 64
-    def fastp_cpus  = params.trim ? sort_cpus : 0
+    def trim        = params.trim.toString().toLowerCase() in ['true', '1', 'yes']
+    def fastp_cpus  = trim ? sort_cpus : 0
     def bwa_cpus    = Math.max(4, task.cpus - sort_cpus - fastp_cpus)
-    if (params.trim)
+    if (trim)
         """
         fastp --in1 ${r1} --in2 ${r2} --stdout --thread ${fastp_cpus} \\
               --qualified_quality_phred ${params.fastp_qual} --length_required ${params.fastp_min_len} \\
