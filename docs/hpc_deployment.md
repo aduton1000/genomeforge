@@ -11,7 +11,8 @@ troubleshooting. All `/hpc/...` and `/opt/...` paths are **examples**; substitut
 cd /opt
 git clone https://github.com/aduton1000/genomeforge.git
 cd genomeforge
-pip install -e .                      # registers `genomeforge`; or put share/bin on PATH (no pip needed)
+pip install -e .                      # registers `genomeforge` (refused on Debian/Ubuntu system Python, PEP 668:
+                                      #  use `export PATH=$PWD/share/bin:$PATH` or a venv: python3 -m venv cli-env && cli-env/bin/pip install -e .)
 genomeforge --version
 genomeforge test                      # compiles and dry-runs the DAG; needs Nextflow ≥ 24.10 and Java 17+
 ```

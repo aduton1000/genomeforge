@@ -60,8 +60,15 @@ pip install -e .            # registers the `genomeforge` command
 genomeforge --version       # success: prints "genomeforge 0.1.0"
 ```
 
-No `pip`? Put `share/bin` on `PATH` instead; the `genomeforge` shim runs straight from the
-checkout. A site fills in [`share/genomeforge-env.sh.example`](share/genomeforge-env.sh.example)
+On a Debian/Ubuntu system Python, `pip install` is refused (PEP 668 "externally managed
+environment"). Either put `share/bin` on `PATH` (the `genomeforge` shim runs straight from
+the checkout with no dependencies) or install into a virtual environment:
+
+```bash
+export PATH=/opt/genomeforge/share/bin:$PATH                       # option A: shim, nothing to install
+python3 -m venv /opt/genomeforge/cli-env && /opt/genomeforge/cli-env/bin/pip install -e /opt/genomeforge   # option B
+```
+ A site fills in [`share/genomeforge-env.sh.example`](share/genomeforge-env.sh.example)
 once (install root, profile, params file, run directory) and sources it from `~/.bashrc`.
 
 A run selects a **site profile**: `slurm` (generic; pair it with a copy of [`params.example.yaml`](params.example.yaml)) or a bundled site profile such as `noguchi` (paths, partition and images built in; add your own as `conf/<site>.config`).
