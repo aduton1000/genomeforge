@@ -7,19 +7,27 @@ troubleshooting. All `/hpc/...` and `/opt/...` paths are **examples**; substitut
 
 ## 0. One-time: central install
 
+Recommended layout (the same as CallForge): `<root>/repo` (the checkout), `<root>/cli-env`
+(a virtual environment holding only the CLI), `<root>/bin/genomeforge` (a wrapper, so the
+venv's own `python`/`pip` never shadow the system ones), and `<root>/genomeforge-env.sh`.
+
 ```bash
-cd /opt
-git clone https://github.com/aduton1000/genomeforge.git
-cd genomeforge
-pip install -e .                      # registers `genomeforge` (refused on Debian/Ubuntu system Python, PEP 668:
-                                      #  use `export PATH=$PWD/share/bin:$PATH` or a venv: python3 -m venv cli-env && cli-env/bin/pip install -e .)
+ROOT=/opt/genomeforge
+git clone https://github.com/aduton1000/genomeforge.git $ROOT/repo
+python3 -m venv $ROOT/cli-env && $ROOT/cli-env/bin/pip install -q -e $ROOT/repo      # PEP 668-safe; no dependencies
+mkdir -p $ROOT/bin
+printf '#!/bin/bash\nexport GENOMEFORGE_HOME="${GENOMEFORGE_HOME:-%s/repo}"\nexec %s/cli-env/bin/genomeforge "$@"\n' "$ROOT" "$ROOT" > $ROOT/bin/genomeforge
+chmod 755 $ROOT/bin/genomeforge
+cp $ROOT/repo/share/genomeforge-env.sh.example $ROOT/genomeforge-env.sh      # edit: home, profile, params, run dir, PATH=$ROOT/bin
+echo "source $ROOT/genomeforge-env.sh" >> ~/.bashrc && source $ROOT/genomeforge-env.sh
 genomeforge --version
 genomeforge test                      # compiles and dry-runs the DAG; needs Nextflow ≥ 24.10 and Java 17+
 ```
 
-Then copy `share/genomeforge-env.sh.example` to a site path, fill in the install root,
-profile, params file and run directory, and source it from `~/.bashrc`. No host conda
-environment is needed; Nextflow itself must be on `PATH` (or come from a site module).
+Updating later is `git -C $ROOT/repo pull --ff-only`; the editable install follows. Without
+a venv, `$ROOT/repo/share/bin` on `PATH` gives the same command straight from the checkout.
+No host conda environment is needed; Nextflow itself must be on `PATH` (or come from a site
+module).
 
 ## 1. Container images
 
