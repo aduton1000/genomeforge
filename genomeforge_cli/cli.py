@@ -42,6 +42,7 @@ environment (all optional; command-line flags override them):
   GENOMEFORGE_RUNDIR      run directory holding work/, tmp/, logs/, results/ (default: ./genomeforge_run)
   GENOMEFORGE_PARTITION   SLURM partition for the head job (default: the cluster default)
   GENOMEFORGE_EXCLUDE_NODES  nodes to keep free, e.g. node4
+  GENOMEFORGE_RESERVATION  SLURM reservation to run inside (head job and every task)
 """
 
 
@@ -159,6 +160,7 @@ examples:
 
   # keep one node free for other users; the head job and every task stay off it
   genomeforge run --profile noguchi --input samplesheet.csv --exclude-nodes node4
+  genomeforge run --input samplesheet.csv --reservation genomeforge_cohort   # inside a SLURM reservation
 
   # show the command that would be submitted, without submitting it
   genomeforge run --profile noguchi --input samplesheet.csv --print-cmd
@@ -199,6 +201,8 @@ def cmd_run(rest):
     ap.add_argument("--params-file", default=d["params"], metavar="YAML", help="site parameter file (copy params.example.yaml)")
     ap.add_argument("--rundir", default=d["rundir"], metavar="DIR", help=f"run directory (default {d['rundir']})")
     ap.add_argument("--partition", default=d["partition"], help="SLURM partition for the head job (default: cluster default)")
+    ap.add_argument("--reservation", default=os.environ.get("GENOMEFORGE_RESERVATION"), metavar="NAME",
+                    help="SLURM reservation for the head job and every task (default: $GENOMEFORGE_RESERVATION)")
     ap.add_argument("--exclude-nodes", default=os.environ.get("GENOMEFORGE_EXCLUDE_NODES"), metavar="LIST",
                     help="SLURM nodes to keep free for other users, e.g. node4 (head job and every task avoid them)")
     ap.add_argument("--max-restarts", type=int, default=20, help="self-resubmissions of the head job after an unfinished exit (default 20)")
@@ -232,6 +236,8 @@ def cmd_run(rest):
         cmd += ["-params-file", os.path.abspath(known.params_file)]
     if known.exclude_nodes and "--slurm_exclude" not in passthrough:
         cmd += ["--slurm_exclude", known.exclude_nodes]
+    if known.reservation and "--slurm_reservation" not in passthrough:
+        cmd += ["--slurm_reservation", known.reservation]
     if known.input:
         cmd += ["--input", os.path.abspath(known.input)]
     if not known.no_resume:
@@ -271,6 +277,8 @@ def cmd_run(rest):
         sbatch_opts.append(f"--partition={known.partition}")
     if known.exclude_nodes:
         sbatch_opts.append(f"--exclude={known.exclude_nodes}")
+    if known.reservation:
+        sbatch_opts.append(f"--reservation={known.reservation}")
     with open(head, "w") as fh:
         fh.write("#!/bin/bash\n" + "".join(f"#SBATCH {o}\n" for o in sbatch_opts))
         fh.write(f"""# GenomeForge head job — self-resuming.
@@ -320,7 +328,8 @@ exit $rc
         _die(f"sbatch failed: {out.stderr.strip()}")
     job = out.stdout.strip()
     print(f"submitted head job {job} ({jobname})\n  run dir   : {rundir}\n  head      : {head}\n"
-          f"  nodes     : {'all except ' + known.exclude_nodes if known.exclude_nodes else 'all in the partition'}\n"
+          f"  nodes     : {'all except ' + known.exclude_nodes if known.exclude_nodes else 'all in the partition'}"
+          f"{' (reservation ' + known.reservation + ')' if known.reservation else ''}\n"
           f"  resilience: SLURM requeue + up to {known.max_restarts} self-resubmissions ({known.restart_delay}s apart), always -resume\n"
           f"  monitor   : genomeforge status --rundir {rundir}    |    tail -f {rundir}/logs/head_{stamp}.out")
     return 0
