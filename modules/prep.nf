@@ -75,25 +75,7 @@ process PREP_INTERVALS {
     # BQSR shards: contiguous groups of WHOLE contigs covering the entire reference (in .dict
     # order, balanced by length); the last group also carries the unmapped reads, so the
     # gathered BAM is complete. Whole contigs => no read is split across shards.
-    python3 - <<'EOF'
-import os
-ctgs = []
-for line in open("${dict}"):
-    if line.startswith("@SQ"):
-        f = dict(x.split(":", 1) for x in line.rstrip("\n").split("\t")[1:]); ctgs.append((f["SN"], int(f["LN"])))
-n = max(1, int("${params.bqsr_scatter}")); target = sum(l for _, l in ctgs) / n
-groups, cur, size = [], [], 0
-for name, ln in ctgs:
-    if cur and size + ln > target and len(groups) < n - 1:
-        groups.append(cur); cur, size = [], 0
-    cur.append(name); size += ln
-if cur: groups.append(cur)
-os.makedirs("bqsr_groups", exist_ok=True)
-for i, g in enumerate(groups):
-    with open("bqsr_groups/%04d%s.intervals" % (i, ".last" if i == len(groups) - 1 else ""), "w") as fh:
-        fh.write("\n".join(g) + "\n")
-print("bqsr groups:", len(groups))
-EOF
+    bqsr_groups.py -n ${params.bqsr_scatter} -o bqsr_groups ${dict}
     """
 
     stub:
