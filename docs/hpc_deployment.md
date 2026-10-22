@@ -125,7 +125,7 @@ if the data or reference filesystem goes with it, in which case the same mechani
 once it is back.
 
 **Sizing.** Per 30× sample: alignment ≈ 60–100 CPU-h, HaplotypeCaller ≈ 30–60 CPU-h,
-peak RAM 64 GB (bwa-mem2 at 32 threads) or 120 GB with `--whole_node_align true`, 72 GB for an
+peak RAM 64 GB (bwa-mem2 at 32 threads) or 160 GB with `--whole_node_align true`, 72 GB for an
 index build. Task durations: lane alignment 1–4 h (half with whole-node), MarkDuplicates 2–3 h,
 BQSR shards 10–20 min, HaplotypeCaller shards ≈ 30–60 min, joint-genotyping shards ≈ 1 h. Storage: final BAMs
 ≈ 1.1× the compressed FASTQ, `work/` peak ≈ 4×, so plan 5× the FASTQ size. A 64-sample 30×
