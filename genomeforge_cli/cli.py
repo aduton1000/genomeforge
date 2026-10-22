@@ -224,8 +224,10 @@ def cmd_run(rest):
     main_nf = os.path.join(REPO_ROOT, "main.nf")
     if not os.path.isfile(main_nf):
         _die(f"main.nf not found under {REPO_ROOT}; set GENOMEFORGE_HOME to the pipeline directory", 2)
+    # -dump-hashes json: every task's cache-key components go to nextflow.log, so an unexpected
+    # cache miss on a later resume can be diagnosed by diffing the two runs' entries.
     cmd = ["nextflow", "-log", os.path.join(rundir, "nextflow.log"), "run", main_nf,
-           "-profile", known.profile, "-work-dir", os.path.join(rundir, "work")]
+           "-profile", known.profile, "-work-dir", os.path.join(rundir, "work"), "-dump-hashes", "json"]
     if known.params_file:
         cmd += ["-params-file", os.path.abspath(known.params_file)]
     if known.exclude_nodes and "--slurm_exclude" not in passthrough:
