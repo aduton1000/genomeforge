@@ -28,7 +28,7 @@ to be checked after the first full cohort run.
   a few hours per sample), changed after the first cohort cluster showed daily power cuts:
   a 10–20 minute shard is lost to an outage, a 4-hour task is lost repeatedly.
 - **Alignment task size is a parameter.** Default two 32-thread tasks per 72-thread node;
-  `--whole_node_align` gives one 64-thread task per node (same throughput, half the wall-clock
+  `--whole_node_align` gives one full-node task (72 threads; same throughput, half the wall-clock
   per task) for clusters where the work at risk per outage matters more than fine packing.
 - **HaplotypeCaller scattered over the GATK WGS calling regions** (48 shards by default,
   `BALANCING_WITHOUT_INTERVAL_SUBDIVISION_WITH_OVERFLOW`); whole-chromosome fallback uses

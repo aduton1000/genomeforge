@@ -117,7 +117,7 @@ work: `nextflow run main.nf -profile noguchi --input samplesheet.csv` and `pytho
 |:-------|:--------|:--------|
 | `--scatter_count` | 48 | HaplotypeCaller / joint-genotyping shards |
 | `--bqsr_scatter` | 24 | BaseRecalibrator / ApplyBQSR shards (whole-contig groups) |
-| `--whole_node_align` | `false` | one 64-thread alignment per node instead of two 32-thread ones; same throughput, half the time at risk per task |
+| `--whole_node_align` | `false` | one alignment task owning the whole node (72 threads) instead of two 32-thread ones; same throughput, half the time at risk per task, and no other job shares the node |
 | `--calling_regions` | site profile | GATK `wgs_calling_regions.hg38.interval_list`; falls back to whole primary chromosomes |
 | `--filtering` | `vqsr` | `hard` for GATK hard filters; automatic fallback if training sets are missing |
 | `--snp_tranche` / `--indel_tranche` | 99.7 / 99.7 | VQSR truth-sensitivity levels |
