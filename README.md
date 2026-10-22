@@ -128,6 +128,7 @@ work: `nextflow run main.nf -profile noguchi --input samplesheet.csv` and `pytho
 | `--archive_cram` | `false` | CRAM next to each final BAM |
 | `--qc_min_depth` / `--qc_max_dup` / `--qc_max_contam` / `--qc_min_mapped` | 20 / 0.25 / 0.03 / 0.95 | QC flag thresholds |
 | `--slurm_exclude` | null | nodes to keep free (also `genomeforge run --exclude-nodes`) |
+| `--slurm_reservation` | null | SLURM reservation every task is submitted into (also `genomeforge run --reservation`) |
 
 Per-process resources live in [`conf/base.config`](conf/base.config); memory and time scale with the retry attempt.
 

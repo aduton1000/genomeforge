@@ -185,3 +185,29 @@ intermediates after a successful run, `nextflow clean -f -k <run name>` or remov
   rm -f gnomad.exomes.v4.1.sites.chr*.vcf.bgz.tbi   # stray, git-ignored
   callforge --version
   ```
+
+## Guaranteeing resources on a shared cluster
+
+Without SLURM accounting there is no fair-share: jobs are ordered by submission time, and a
+workflow that submits tasks as their inputs become ready always sits behind a large array
+submitted earlier. A SLURM reservation is the clean guarantee and needs no configuration
+change or daemon restart. As an administrator, for example three nodes for three weeks:
+
+```bash
+sudo scontrol create reservation ReservationName=genomeforge_cohort Users=<user> \
+     Nodes=node2,node3,node4 StartTime=now Duration=21-00:00:00 Flags=IGNORE_JOBS
+scontrol show reservation
+```
+
+Jobs already running on those nodes finish; nothing new from other users starts there.
+Then run inside it, head job and tasks alike:
+
+```bash
+genomeforge run --input samplesheet.csv --reservation genomeforge_cohort
+```
+
+`scontrol update reservation ReservationName=... Duration=...` extends it, and
+`scontrol delete reservation ReservationName=...` releases it the moment the run is done.
+A partial reservation (`CoreCnt=56,56,56` instead of whole nodes) leaves cores for others
+but does not reserve memory, so whole nodes are the dependable choice for alignment.
+
