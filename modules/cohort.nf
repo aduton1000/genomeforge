@@ -60,13 +60,32 @@ process PLINK_PCA {
     script:
     def mem = Math.max(2000, ((task.memory.toMega() * 0.8) as int))
     """
+    # PCA is advisory: it must never abort a run. Small cohorts (plink2 refuses LD pruning
+    # below 50 samples and cannot return more PCs than samples-1) are handled, and any
+    # plink2 failure leaves empty outputs plus an explanation in cohort_pca.log.
+    n=\$(gzip -dc ${vcf} | grep -m1 '^#CHROM' | awk '{print NF - 9}')
+    pcs=10; [ "\$n" -le 10 ] && pcs=\$((n - 1))
+    badld=""; [ "\$n" -lt 50 ] && badld="--bad-ld"
+    : > cohort_pca.eigenvec; : > cohort_pca.eigenval
+    if [ "\$n" -lt 3 ]; then
+        echo "PCA skipped: \$n sample(s) in the cohort (need >= 3)" | tee cohort_pca.log >&2
+        exit 0
+    fi
+    set +e
     plink2 --vcf ${vcf} --vcf-half-call m --snps-only just-acgt --max-alleles 2 --autosome \\
         --set-missing-var-ids '@:#:\$r:\$a' --new-id-max-allele-len 50 missing \\
-        --maf 0.05 --geno 0.05 --hwe 1e-6 --indep-pairwise 200 50 0.2 \\
-        --threads ${task.cpus} --memory ${mem} --out prune
-    plink2 --vcf ${vcf} --vcf-half-call m --snps-only just-acgt --max-alleles 2 --autosome \\
+        --maf 0.05 --geno 0.05 --hwe 1e-6 --indep-pairwise 200 50 0.2 \$badld \\
+        --threads ${task.cpus} --memory ${mem} --out prune \\
+    && plink2 --vcf ${vcf} --vcf-half-call m --snps-only just-acgt --max-alleles 2 --autosome \\
         --set-missing-var-ids '@:#:\$r:\$a' --new-id-max-allele-len 50 missing \\
-        --extract prune.prune.in --pca 10 --threads ${task.cpus} --memory ${mem} --out cohort_pca
+        --extract prune.prune.in --pca \$pcs --threads ${task.cpus} --memory ${mem} --out cohort_pca
+    rc=\$?
+    set -e
+    if [ \$rc -ne 0 ] || [ ! -s cohort_pca.eigenvec ]; then
+        echo "plink2 PCA failed (exit \$rc) for n=\$n samples; PCA figures will be skipped" | tee -a cohort_pca.log >&2
+        : > cohort_pca.eigenvec; : > cohort_pca.eigenval
+    fi
+    touch cohort_pca.log
     """
 
     stub:

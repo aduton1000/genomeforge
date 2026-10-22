@@ -80,3 +80,13 @@ to be checked after the first full cohort run.
 - **Future modules**: SV/CNV (Manta/smoove, CNVkit in `wgs` mode), STR (ExpansionHunter),
   DeepVariant + GLnexus as an alternative caller, GIAB benchmarking when a control is
   sequenced.
+
+## Advisory steps never abort a run (October 2026 pilot)
+
+The 3-sample pilot exposed two ways a run could die for reasons unrelated to the data:
+plink2 refuses LD pruning below 50 samples, and bcftools 1.21 segfaults when asked to
+annotate an empty chromosome slice (chrM had no passing variants) with a contig-less
+ClinVar file. PCA now adapts to the cohort size and degrades to empty outputs on failure,
+empty slices bypass annotation, and ClinVar is reheadered with the reference contigs.
+The head job also stops resubmitting when the same process fails in two consecutive
+attempts: that is a deterministic error to fix, not an outage to wait out.
