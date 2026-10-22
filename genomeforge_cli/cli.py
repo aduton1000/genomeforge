@@ -298,6 +298,16 @@ fi
 if [ "$GF_ATTEMPT" -ge "$GF_MAX" ]; then
     echo "giving up after $GF_ATTEMPT attempts; fix the cause and run the same genomeforge command again (it resumes)"; exit $rc
 fi
+# A process that fails in two consecutive attempts is a deterministic error (bad input, bug,
+# missing resource), not an outage: resubmitting would only repeat it. Stop and report.
+err=$(grep -o "Error executing process > '[^']*'" nextflow.log 2>/dev/null | tail -1 || true)
+prev=$(cat logs/last_error 2>/dev/null || true)
+printf '%s\n' "$err" > logs/last_error
+if [ -n "$err" ] && [ "$err" = "$prev" ]; then
+    echo "$err failed in two consecutive attempts: deterministic error, not resubmitting."
+    echo "Inspect the work directory named in nextflow.log, fix the cause, then run the same genomeforge command again (it resumes)."
+    exit $rc
+fi
 echo "unfinished: resubmitting in $GF_DELAY s as attempt $((GF_ATTEMPT + 1))/$GF_MAX (resume)"
 sleep "$GF_DELAY"
 sbatch --export=ALL,GF_ATTEMPT=$((GF_ATTEMPT + 1)) "$HEAD"

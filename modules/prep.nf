@@ -121,7 +121,11 @@ process PREP_CLINVAR {
     """
     { for i in \$(seq 1 22) X Y; do echo "\$i chr\$i"; done; echo "MT chrM"; } > rename.txt
     bcftools annotate --rename-chrs rename.txt ${clinvar} -Ou \\
-      | bcftools sort -T ./tmp -m ${Math.max(1, (task.memory.toGiga() * 0.5) as int)}G -Oz -o clinvar.chr.vcf.gz
+      | bcftools sort -T ./tmp -m ${Math.max(1, (task.memory.toGiga() * 0.5) as int)}G -Oz -o clinvar.sorted.vcf.gz
+    # ClinVar ships without ##contig lines; add them from the reference index so every
+    # downstream bcftools step sees a well-formed annotation file.
+    bcftools reheader --fai ${fai} -o clinvar.chr.vcf.gz clinvar.sorted.vcf.gz
+    rm -f clinvar.sorted.vcf.gz
     tabix -p vcf clinvar.chr.vcf.gz
     """
 

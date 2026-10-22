@@ -20,6 +20,16 @@ process ANNOTATE_CHROM {
     bcftools view --threads ${task.cpus} -r ${chrom} -Oz -o ${chrom}.in.vcf.gz ${vcf}
     tabix -p vcf ${chrom}.in.vcf.gz
 
+    # An empty slice (e.g. chrM in a small cohort) is passed through untouched: bcftools 1.21
+    # segfaults when annotating a record-less VCF, and there is nothing to annotate anyway.
+    if [ -z "\$(bcftools view -H ${chrom}.in.vcf.gz | head -n 1)" ]; then
+        echo "no PASS variants on ${chrom}: annotation skipped" >&2
+        cp ${chrom}.in.vcf.gz ${chrom}.anno.vcf.gz
+        tabix -p vcf ${chrom}.anno.vcf.gz
+        rm -f ${chrom}.in.vcf.gz*
+        exit 0
+    fi
+
     # dbSNP rsIDs
     bcftools annotate --threads ${task.cpus} -a ${dbsnp} -c ID -Oz -o ${chrom}.s1.vcf.gz ${chrom}.in.vcf.gz
     tabix -p vcf ${chrom}.s1.vcf.gz
