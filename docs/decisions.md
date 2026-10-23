@@ -90,3 +90,21 @@ ClinVar file. PCA now adapts to the cohort size and degrades to empty outputs on
 empty slices bypass annotation, and ClinVar is reheadered with the reference contigs.
 The head job also stops resubmitting when the same process fails in two consecutive
 attempts: that is a deterministic error to fix, not an outage to wait out.
+
+## Stage gathers emit per group, not per stage (October 2026 pilot)
+
+Every per-sample or per-interval gather (`MARKDUP`, `GATHER_BQSR`, `GATHER_BAM`, `GATHER_GVCF`,
+`GENOMICSDB_IMPORT`) used a plain `groupTuple()`. Without a known group size Nextflow holds all
+groups until the upstream channel closes, which turned the workflow into a sequence of cohort-wide
+barriers: no sample could start BQSR until the last sample's MarkDuplicates finished, no sample could
+reach ApplyBQSR until every BQSR shard of every sample was done, and so on. In the pilot that left
+three reserved nodes idle for over an hour while one MarkDuplicates task finished; for 67 samples the
+idle tails would have added many hours.
+
+Each gather now wraps its key with `groupKey(key, size)`, where the size is known up front: lanes per
+sample from the sample sheet, BQSR groups and HaplotypeCaller intervals from counting the
+`PREP_INTERVALS` outputs, and the number of samples for the per-interval joint-genotyping groups.
+A group is emitted the moment its last member arrives, so fast samples flow through the whole
+per-sample chain while slow ones are still aligning. Verified locally: the change does not alter
+task hashes (a `-resume` after the rewiring reported every task cached), and the arrival order of
+files within a group replays identically on resume, so no `sort:` option is needed.

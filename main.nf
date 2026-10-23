@@ -86,6 +86,10 @@ workflow {
 
     // ---- sample sheet: one row per lane-pair ------------------------------------
     def samplesheet = file(params.input, checkIfExists: true)
+    // lanes per sample and sample count, so that every gather below emits as soon as ITS group
+    // is complete instead of waiting for the whole stage to finish across all samples
+    def lane_counts = samplesheet.splitCsv(header: true, strip: true).collect { row -> row.sample_id }.countBy { id -> id }
+    def n_samples   = lane_counts.size()
     def lanes = channel.fromPath(params.input, checkIfExists: true)
         .splitCsv(header: true, strip: true)
         .map { row ->
@@ -102,14 +106,24 @@ workflow {
 
     // ---- alignment -> analysis-ready BAM ---------------------------------------
     ALIGN_LANE(lanes, ref, bwa_index)
-    def per_sample = ALIGN_LANE.out.bam.map { meta, bam, bai -> tuple(meta.id, bam, bai) }.groupTuple()
+    def per_sample = ALIGN_LANE.out.bam
+        .map { meta, bam, bai -> tuple(groupKey(meta.id, lane_counts[meta.id]), bam, bai) }
+        .groupTuple()
+        .map { k, bam, bai -> tuple(k.getGroupTarget(), bam, bai) }
     MARKDUP(per_sample)
     // BQSR scattered over whole-contig groups (short tasks: a power cut costs minutes, not hours)
     def bqsr_groups = PREP_INTERVALS.out.bqsr_groups.flatten().map { f -> tuple(f.name.replace('.last.intervals', '').replace('.intervals', ''), f) }
+    def n_bqsr = bqsr_groups.count()
     BASERECAL_SHARD(MARKDUP.out.bam.combine(bqsr_groups), ref, known_vcf, known_tbi)
-    GATHER_BQSR(BASERECAL_SHARD.out.map { s, g, t -> tuple(s, t) }.groupTuple())
+    GATHER_BQSR(BASERECAL_SHARD.out.combine(n_bqsr)
+        .map { s, g, t, n -> tuple(groupKey(s, n), t) }
+        .groupTuple()
+        .map { k, t -> tuple(k.getGroupTarget(), t) })
     APPLYBQSR_SHARD(MARKDUP.out.bam.join(GATHER_BQSR.out).combine(bqsr_groups), ref)
-    GATHER_BAM(APPLYBQSR_SHARD.out.map { s, g, b -> tuple(s, b) }.groupTuple(), ref)
+    GATHER_BAM(APPLYBQSR_SHARD.out.combine(n_bqsr)
+        .map { s, g, b, n -> tuple(groupKey(s, n), b) }
+        .groupTuple()
+        .map { k, b -> tuple(k.getGroupTarget(), b) }, ref)
     def bams = GATHER_BAM.out.bam
 
     // ---- per-sample QC -----------------------------------------------------------
@@ -124,9 +138,18 @@ workflow {
     }
 
     // ---- variant calling ---------------------------------------------------------
+    def n_intervals = intervals.count()
     HAPLOTYPECALLER(bams.combine(intervals), ref)
-    GATHER_GVCF(HAPLOTYPECALLER.out.map { s, iv, g, t -> tuple(s, g, t) }.groupTuple())
-    def by_interval = HAPLOTYPECALLER.out.map { s, iv, g, t -> tuple(iv, s, g, t) }.groupTuple().join(intervals)
+    GATHER_GVCF(HAPLOTYPECALLER.out.combine(n_intervals)
+        .map { s, iv, g, t, n -> tuple(groupKey(s, n), g, t) }
+        .groupTuple()
+        .map { k, g, t -> tuple(k.getGroupTarget(), g, t) })
+    // joint genotyping of an interval starts as soon as every sample's gVCF for it exists
+    def by_interval = HAPLOTYPECALLER.out
+        .map { s, iv, g, t -> tuple(groupKey(iv, n_samples), s, g, t) }
+        .groupTuple()
+        .map { k, s, g, t -> tuple(k.getGroupTarget(), s, g, t) }
+        .join(intervals)
     GENOMICSDB_IMPORT(by_interval)
     GENOTYPE_GVCFS(GENOMICSDB_IMPORT.out, ref, dbsnp)
     CONCAT_VCFS(GENOTYPE_GVCFS.out.map { iv, v, t -> v }.collect(), GENOTYPE_GVCFS.out.map { iv, v, t -> t }.collect())
