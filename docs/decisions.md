@@ -114,8 +114,8 @@ files within a group replays identically on resume, so no `sort:` option is need
 When a head job dies (power cut on its node, `scancel`, SLURM kill) its task jobs keep running on
 the other nodes. The next attempt resumes, finds no completed cache entry for those tasks and
 submits them again, into the same work directories, where the orphans are still writing. Two
-processes then write the same BAM: this is how `UCC25_0163.md.bam` got a new timestamp with an
-older index on 22 October, which in turn invalidated every task downstream of it.
+processes then write the same BAM. (On 23 October, 22 BQSR shards of a cancelled head kept
+running for minutes after it was gone.)
 
 Every task job now carries `--comment=<head chain name>` (`params.slurm_comment`, set by the
 CLI), and the head script cancels every job with that comment before Nextflow starts and again
@@ -128,3 +128,15 @@ immediately. Jobs of another run directory carry a different comment and are unt
 unconditionally. The noguchi profile points `vep_container` at the official
 `ensemblorg/ensembl-vep:release_112.0` image pulled into `/hpc/opt/callforge/images/`; the
 annotate image is still used for vcfanno.
+
+## Lenient cache keys: the work directory is served over NFS (October 2026 pilot)
+
+node1 holds `/hpc` on local ZFS and serves it to node2-4 over NFS. On 22 October the NFS server
+on node1 restarted at 06:16:05 (kernel log: `svc: failed to register nfsdv3 RPC service`, then a
+new NFSv4 grace period); at 06:16:07 the modification time of `UCC25_0163.md.bam`, finished 15
+hours earlier, moved to that instant while its index kept the old time. Nextflow's default
+`standard` cache mode keys a file by path, size and modification time, so every task downstream
+of that BAM was recomputed on the next resume. The same class of event would cost days on the
+cohort. All processes now use `cache = 'lenient'` (`params.cache_mode`), which keys files by path
+and size only, the mode Nextflow recommends for shared filesystems with unstable timestamps.
+Switching modes changes every key once, so the pilot re-ran from alignment after this change.
