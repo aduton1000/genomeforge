@@ -24,7 +24,10 @@ genomeforge --version
 genomeforge test                      # compiles and dry-runs the DAG; needs Nextflow ≥ 24.10 and Java 17+
 ```
 
-Updating later is `git -C $ROOT/repo pull --ff-only`; the editable install follows. Without
+Updating later is `git -C $ROOT/repo pull --ff-only`; the editable install follows.
+VEP needs the official Ensembl image next to the CallForge ones (the annotate image's VEP is
+broken, see docs/decisions.md): `apptainer pull /hpc/opt/callforge/images/ensembl-vep-112.sif
+docker://ensemblorg/ensembl-vep:release_112.0`. Without
 a venv, `$ROOT/repo/share/bin` on `PATH` gives the same command straight from the checkout.
 No host conda environment is needed; Nextflow itself must be on `PATH` (or come from a site
 module).
