@@ -129,6 +129,7 @@ work: `nextflow run main.nf -profile noguchi --input samplesheet.csv` and `pytho
 | `--qc_min_depth` / `--qc_max_dup` / `--qc_max_contam` / `--qc_min_mapped` | 20 / 0.25 / 0.03 / 0.95 | QC flag thresholds |
 | `--slurm_exclude` | null | nodes to keep free (also `genomeforge run --exclude-nodes`) |
 | `--slurm_reservation` | null | SLURM reservation every task is submitted into (also `genomeforge run --reservation`) |
+| `--cache_mode` | lenient | Nextflow cache mode for every process: `lenient` ignores file timestamps, which NFS does not keep stable; `standard` includes them |
 | `--slurm_comment` | set by the CLI | `--comment` on every task job, naming its head chain so the head can cancel its own leftovers |
 | `--vep_container` | null | image for VEP (path or docker name) when the annotate image's VEP is unusable |
 
