@@ -108,3 +108,23 @@ A group is emitted the moment its last member arrives, so fast samples flow thro
 per-sample chain while slow ones are still aligning. Verified locally: the change does not alter
 task hashes (a `-resume` after the rewiring reported every task cached), and the arrival order of
 files within a group replays identically on resume, so no `sort:` option is needed.
+
+## A head job cancels its own leftover tasks (October 2026 pilot)
+
+When a head job dies (power cut on its node, `scancel`, SLURM kill) its task jobs keep running on
+the other nodes. The next attempt resumes, finds no completed cache entry for those tasks and
+submits them again, into the same work directories, where the orphans are still writing. Two
+processes then write the same BAM: this is how `UCC25_0163.md.bam` got a new timestamp with an
+older index on 22 October, which in turn invalidated every task downstream of it.
+
+Every task job now carries `--comment=<head chain name>` (`params.slurm_comment`, set by the
+CLI), and the head script cancels every job with that comment before Nextflow starts and again
+when it is itself terminated. Nextflow runs in the background of the script so the TERM trap acts
+immediately. Jobs of another run directory carry a different comment and are untouched.
+
+## VEP from the official Ensembl image at Noguchi (October 2026 pilot)
+
+`callforge-annotate.sif` cannot run VEP at all: its Perl lacks `List::MoreUtils`, which VEP loads
+unconditionally. The noguchi profile points `vep_container` at the official
+`ensemblorg/ensembl-vep:release_112.0` image pulled into `/hpc/opt/callforge/images/`; the
+annotate image is still used for vcfanno.

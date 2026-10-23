@@ -232,6 +232,10 @@ def cmd_run(rest):
     # cache miss on a later resume can be diagnosed by diffing the two runs' entries.
     cmd = ["nextflow", "-log", os.path.join(rundir, "nextflow.log"), "run", main_nf,
            "-profile", known.profile, "-work-dir", os.path.join(rundir, "work"), "-dump-hashes", "json"]
+    import hashlib
+    jobname = "genomeforge-" + hashlib.sha1(rundir.encode()).hexdigest()[:8]     # one head chain per run directory
+    if "--slurm_comment" not in passthrough:
+        cmd += ["--slurm_comment", jobname]      # every task job is tagged with its head chain (see the head script)
     if known.params_file:
         cmd += ["-params-file", os.path.abspath(known.params_file)]
     if known.exclude_nodes and "--slurm_exclude" not in passthrough:
@@ -265,8 +269,6 @@ def cmd_run(rest):
         return subprocess.call(cmd, cwd=rundir, env=env)
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    import hashlib
-    jobname = "genomeforge-" + hashlib.sha1(rundir.encode()).hexdigest()[:8]     # one head chain per run directory
     head = os.path.join(rundir, "logs", f"head_{stamp}.sbatch")
     done = os.path.join(rundir, "logs", f"head_{stamp}.complete")
     exports = "\n".join(f"export {k}={shlex.quote(v)}" for k, v in env.items()
@@ -286,6 +288,10 @@ def cmd_run(rest):
 #  * On any unfinished exit (Nextflow crash, power trip while the node was up) it sleeps and
 #    resubmits itself with -resume, up to GF_MAX attempts. A marker file ends the chain.
 #  * Only one head job per run directory ever runs: a second instance exits immediately.
+#  * Task jobs carry --comment={jobname}. Before Nextflow starts, any task job left over from a
+#    previous attempt (the head died, its tasks did not) is cancelled, so a resubmitted task never
+#    shares its work directory with an orphan still writing to it. The same happens if this head
+#    job is cancelled or killed.
 set -u
 cd {shlex.quote(rundir)}
 {exports}
@@ -299,8 +305,20 @@ ulimit -n 65536 2>/dev/null || true
 others=$(squeue -h -u "$USER" -n {jobname} -t RUNNING -o %i | grep -vx "${{SLURM_JOB_ID:-x}}" || true)
 [ -z "$others" ] || {{ echo "another head job ($others) is already running for this run directory; exiting"; exit 0; }}
 echo "=== GenomeForge head job $SLURM_JOB_ID on $(hostname) at $(date)  attempt $GF_ATTEMPT/$GF_MAX"
-{shown}
+own_tasks() {{ squeue -h -u "$USER" -o "%i %k" 2>/dev/null | awk -v c={jobname} '$2 == c {{print $1}}'; }}
+cancel_tasks() {{
+    local jobs; jobs=$(own_tasks | tr '\\n' ' ')
+    [ -z "${{jobs// /}}" ] && return 0
+    echo "$1: cancelling task job(s) $jobs"; scancel $jobs 2>/dev/null || true
+    for i in 1 2 3 4 5 6; do [ -z "$(own_tasks)" ] && break; sleep 5; done
+}}
+cancel_tasks "orphans from a previous attempt"
+trap 'cancel_tasks "head job terminated"; exit 143' TERM INT
+{shown} &
+NF_PID=$!
+wait $NF_PID
 rc=$?
+trap - TERM INT
 echo "=== nextflow exited with status $rc at $(date)"
 if [ $rc -eq 0 ]; then
     touch "$DONE"; echo "run complete"; exit 0
