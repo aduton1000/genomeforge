@@ -206,8 +206,12 @@ Then run inside it, head job and tasks alike:
 genomeforge run --input samplesheet.csv --reservation genomeforge_cohort
 ```
 
-`scontrol update reservation ReservationName=... Duration=...` extends it, and
-`scontrol delete reservation ReservationName=...` releases it the moment the run is done.
+`scontrol update ReservationName=... Duration=...` extends it;
+`scontrol update ReservationName=... StartTime=<later>` parks it (nodes are released now and
+reserved again automatically at the new start); `scontrol delete ReservationName=...`
+releases it for good the moment the run is done. Note that `scontrol delete` and
+`scontrol update` take the name directly: the word `reservation` belongs only to `create`
+and `show`.
 A partial reservation (`CoreCnt=56,56,56` instead of whole nodes) leaves cores for others
 but does not reserve memory, so whole nodes are the dependable choice for alignment.
 
