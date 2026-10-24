@@ -90,9 +90,22 @@ def read_somalier_samples(p):
             if line.startswith("#"): hdr = [h.lstrip("#") for h in f]; continue
             if hdr is None or len(f) < len(hdr): continue
             r = dict(zip(hdr, f))
-            sex = r.get("sex", "")
-            out[r["sample_id"]] = {"somalier_sex": {"1": "M", "2": "F"}.get(sex, sex or "unknown"),
-                                   "somalier_X_het": r.get("X_het"), "somalier_Y_depth": r.get("Y_depth_mean")}
+            # Without a pedigree somalier leaves `sex` at -9 even with --infer; infer it here from the
+            # X heterozygosity ratio and the Y depth, the same signals somalier's HTML uses.
+            sex = {"1": "M", "2": "F"}.get(r.get("sex", ""))
+            if sex is None:
+                try:
+                    xhet, xalt, xn = float(r.get("X_het") or 0), float(r.get("X_hom_alt") or 0), float(r.get("X_n") or 0)
+                    depth, ydepth = float(r.get("gt_depth_mean") or r.get("depth_mean") or 0), float(r.get("Y_depth_mean") or 0)
+                except ValueError:
+                    xhet = xalt = xn = depth = ydepth = 0.0
+                ratio = xhet / (xhet + xalt) if (xhet + xalt) > 0 else None
+                yfrac = ydepth / depth if depth > 0 else None
+                if xn < 50 or ratio is None: sex = "unknown"
+                elif ratio >= 0.2 and (yfrac is None or yfrac < 0.15): sex = "F"
+                elif ratio < 0.1 and (yfrac is None or yfrac >= 0.15): sex = "M"
+                else: sex = "ambiguous"
+            out[r["sample_id"]] = {"somalier_sex": sex, "somalier_X_het": r.get("X_het"), "somalier_Y_depth": r.get("Y_depth_mean")}
     return out
 
 
@@ -176,7 +189,7 @@ def main():
         if d.get("freemix") is not None and d["freemix"] > a.max_contam: flags.append(f"contamination({d['freemix']:.3f})")
         if d.get("pct_mapped") is not None and d["pct_mapped"] < a.min_mapped: flags.append(f"low_mapping({d['pct_mapped']:.3f})")
         sx = s.get("sex", "")
-        inferred = d.get("somalier_sex") or d.get("sex_coverage")
+        inferred = d.get("somalier_sex") if d.get("somalier_sex") in ("M", "F") else d.get("sex_coverage")
         if sx in ("M", "F") and inferred in ("M", "F") and sx != inferred: flags.append(f"sex_mismatch(sheet={sx},inferred={inferred})")
         if d.get("sex_coverage") == "ambiguous": flags.append("sex_ambiguous")
         if d.get("somalier_sex") and d.get("sex_coverage") in ("M", "F") and d["somalier_sex"] in ("M", "F") and d["somalier_sex"] != d["sex_coverage"]:
@@ -210,7 +223,7 @@ def main():
             fh.write("\n## Flagged samples\n\n| sample | flags |\n|---|---|\n")
             for r in flagged: fh.write(f"| {r['sample_id']} | {r['qc_flags']} |\n")
         sexes = defaultdict(int)
-        for r in rows: sexes[r.get("somalier_sex") or r.get("sex_coverage") or "unknown"] += 1
+        for r in rows: sexes[r.get("somalier_sex") if r.get("somalier_sex") in ("M", "F") else (r.get("sex_coverage") or "unknown")] += 1
         fh.write(f"\nInferred sex counts: {dict(sexes)}\n")
     print(f"[summarize_qc] {len(rows)} samples, {len(flagged)} flagged -> {a.out_tsv}")
 

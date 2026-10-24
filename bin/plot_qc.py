@@ -431,7 +431,7 @@ def pdf_report(qc, out_pdf, run_label):
         for i, sec in enumerate(secs):
             fig.text(0.10, 0.22 - i * 0.03, f"{i + 2}. {sec}", fontsize=10)
         if NOTES:
-            fig.text(0.08, 0.10, "Skipped figures: " + "; ".join(n.split(":")[0] for n in NOTES), fontsize=7, color="#9E2B25", wrap=True)
+            fig.text(0.08, 0.22 - len(secs) * 0.03 - 0.03, "Skipped figures: " + "; ".join(n.split(":")[0] for n in NOTES), fontsize=7, color="#9E2B25", wrap=True)
         pdf.savefig(fig); plt.close(fig)
         # ---- flagged samples + full table (paginated)
         cols = [c for c in ("sample_id", "n_lanes", "mean_coverage", "pct_20x", "dup_rate", "pct_mapped", "freemix", "sex_sheet", "somalier_sex", "titv", "qc_status") if c in qc]
