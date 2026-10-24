@@ -113,6 +113,7 @@ def fig_chrom_heatmap(mosdepth_dir):
     rows, names = [], []
     for f in files:
         d = pd.read_csv(f, sep="\t")
+        d["chrom"] = d["chrom"].replace({"chrMT": "chrM", "MT": "chrM", "M": "chrM"})  # mitochondrial contig name varies by build
         d = d[d["chrom"].isin(CHROMS)].set_index("chrom")["mean"]
         auto = d.reindex(AUTOS).mean()
         if not auto: continue
