@@ -91,6 +91,23 @@ empty slices bypass annotation, and ClinVar is reheadered with the reference con
 The head job also stops resubmitting when the same process fails in two consecutive
 attempts: that is a deterministic error to fix, not an outage to wait out.
 
+## GenomicsDB workspaces travel as tar files (October 2026 pilot)
+
+`GENOMICSDB_IMPORT` used to emit the workspace directory and `GENOTYPE_GVCFS` read it in place.
+On the second pilot attempt (24 Oct 2026) 21 of 25 genotyping tasks re-ran on `-resume` although
+their inputs were untouched. The `-dump-hashes` output showed why: Nextflow hashes a directory
+input by its path and its reported `st_size` only (lenient mode; standard mode adds the mtime),
+and on ZFS `st_size` of a directory is its entry count. Attempt 1 had hashed each workspace with
+its real count; attempt 2 saw 2, an empty directory, for the 21 workspaces that nothing had
+modified since the import, and the correct count again forty minutes later. The four workspaces
+GenotypeGVCFs had rewritten `callset.json` in hashed the same both times. Reproducing Nextflow's
+hash function outside the pipeline (murmur3_128 over the path and the size) recovered exactly
+those two sizes from the logged hashes. Nothing in the pipeline can prevent a filesystem from
+misreporting a directory's size, so the workspace is now tarred by the import and unpacked by
+the genotyping task. A regular file is hashed by its byte size, which is what the import wrote.
+The cost is one tar and one untar per interval, a few seconds each, inside tasks that take tens
+of minutes.
+
 ## Stage gathers emit per group, not per stage (October 2026 pilot)
 
 Every per-sample or per-interval gather (`MARKDUP`, `GATHER_BQSR`, `GATHER_BAM`, `GATHER_GVCF`,
