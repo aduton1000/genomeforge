@@ -8,8 +8,12 @@ process GENOMICSDB_IMPORT {
     tuple val(iv), val(samples), path(gvcfs), path(tbis), path(interval)
 
     output:
-    tuple val(iv), path("gdb_${iv}"), path(interval)
+    tuple val(iv), path("gdb_${iv}.tar"), path(interval)
 
+    // The workspace is handed on as a single tar file, not a directory. Nextflow hashes a
+    // directory input by its reported entry count alone, and node1's ZFS returned a stale
+    // count for untouched workspaces during the pilot (24 Oct 2026), which re-ran joint
+    // calling on resume. A regular file is hashed by its byte size. See docs/decisions.md.
     script:
     def slist = samples instanceof List ? samples : [samples]
     def glist = gvcfs   instanceof List ? gvcfs   : [gvcfs]
@@ -23,11 +27,13 @@ EOF
         --genomicsdb-workspace-path gdb_${iv} --sample-name-map sample_map.txt \\
         -L ${interval} --merge-input-intervals true --batch-size 16 \\
         --reader-threads ${task.cpus} --genomicsdb-shared-posixfs-optimizations true --tmp-dir ./tmp
+    tar -cf gdb_${iv}.tar gdb_${iv}
+    rm -rf gdb_${iv}
     """
 
     stub:
     """
-    mkdir -p gdb_${iv}; touch gdb_${iv}/callset.json
+    mkdir -p gdb_${iv}; touch gdb_${iv}/callset.json; tar -cf gdb_${iv}.tar gdb_${iv}; rm -rf gdb_${iv}
     """
 }
 
@@ -36,7 +42,7 @@ process GENOTYPE_GVCFS {
     label 'genotype'
 
     input:
-    tuple val(iv), path(gdb), path(interval)
+    tuple val(iv), path(gdb_tar), path(interval)
     tuple path(fasta), path(fai), path(dict)
     tuple path(dbsnp), path(dbsnp_tbi)
 
@@ -46,10 +52,12 @@ process GENOTYPE_GVCFS {
     script:
     def mem = Math.max(4, (task.memory.toGiga() * 0.75) as int)
     """
+    tar -xf ${gdb_tar}
     gatk --java-options "-Xmx${mem}g -Djava.io.tmpdir=./tmp" GenotypeGVCFs \\
-        -R ${fasta} -V gendb://${gdb} -L ${interval} -O ${iv}.vcf.gz -D ${dbsnp} \\
+        -R ${fasta} -V gendb://gdb_${iv} -L ${interval} -O ${iv}.vcf.gz -D ${dbsnp} \\
         -G StandardAnnotation --only-output-calls-starting-in-intervals \\
         --merge-input-intervals true --genomicsdb-shared-posixfs-optimizations true
+    rm -rf gdb_${iv}
     """
 
     stub:
