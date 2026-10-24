@@ -66,7 +66,18 @@ workflow {
     def known_vcf = channel.value([params.dbsnp, params.mills, params.known_indels].collect { vcfOf(it) })
     def known_tbi = channel.value([params.dbsnp, params.mills, params.known_indels].collect { tbiOf(it) })
     def somalier_sites = channel.value(vcfOf(params.somalier_sites))      // somalier reads it sequentially; no index needed
-    def chroms    = params.chromosomes.tokenize(',')
+    // Annotation slices are cut by contig name, so each requested chromosome must exist in the
+    // reference. The mitochondrial contig is the usual mismatch (chrM, chrMT or MT depending on
+    // the assembly build); resolve it against the .fai instead of silently annotating nothing.
+    def fai_contigs = fai.readLines().collect { line -> line.tokenize('\t')[0] } as Set
+    def mito_names  = ['chrM', 'chrMT', 'MT', 'M']
+    def chroms = params.chromosomes.tokenize(',').collect { c ->
+        if (c in fai_contigs) return c
+        def alt = (c in mito_names) ? mito_names.find { m -> m in fai_contigs } : null
+        if (alt) { log.info("chromosomes: ${c} is named ${alt} in the reference; using ${alt}"); return alt }
+        log.warn("chromosomes: ${c} is not a contig of ${fai.name}; its annotation slice will be empty")
+        return c
+    }
 
     def vqsr_paths = [params.hapmap, params.omni, params.g1000, params.mills, params.dbsnp]
     def use_vqsr   = params.filtering == 'vqsr' && vqsr_paths.every { it && file(it).exists() && file("${it}.tbi").exists() }
